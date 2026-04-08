@@ -1,0 +1,8 @@
+[project]
+name = "robot-dreams-multi-agent-systems"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.1",
+]
