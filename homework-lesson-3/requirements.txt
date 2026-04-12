@@ -1,5 +1,8 @@
-langchain>=1.2.0
-ddgs>=7.0
-trafilatura>=2.0.0
-pydantic>=2.12.0
-pydantic-settings>=2.12.0
+langchain==1.2.15
+langchain-openai==1.1.12
+langgraph==1.1.6
+httpx==0.28.1
+ddgs==9.13.0
+trafilatura==2.0.0
+pydantic==2.12.5
+pydantic-settings==2.13.1
