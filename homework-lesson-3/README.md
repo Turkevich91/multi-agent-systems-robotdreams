@@ -4,6 +4,48 @@
 
 > **Примітка:** Проєкт містить приклад коду, який є відправною точкою. Ви можете вільно змінювати, доповнювати та адаптувати його під свої потреби.
 
+## Реалізована версія
+
+Ця версія запускає LangChain `create_agent` з локальною OpenAI-compatible моделлю в LM Studio.
+
+### Швидкий запуск
+
+1. Запустіть LM Studio server на `http://127.0.0.1:1234/v1` і виберіть модель `google/gemma-4-26b-a4b`.
+2. Встановіть залежності з кореня репозиторію:
+   ```powershell
+   uv sync
+   ```
+3. Запустіть інтерактивний агент:
+   ```powershell
+   uv run python .\homework-lesson-3\main.py
+   ```
+
+Для запуску через `pip`:
+```powershell
+cd .\homework-lesson-3
+python -m pip install -r requirements.txt
+python main.py
+```
+
+### Конфігурація
+
+За замовчуванням використовується локальний endpoint LM Studio, тому реальний OpenAI API key не потрібен. Якщо потрібно змінити модель або endpoint, скопіюйте `.env.example` у `.env` і відредагуйте:
+
+```env
+OPENAI_API_KEY=lm-studio
+OPENAI_BASE_URL=http://127.0.0.1:1234/v1
+MODEL_NAME=google/gemma-4-26b-a4b
+```
+
+### Архітектура
+
+- `config.py`: Pydantic Settings, system prompt, ліміти context engineering.
+- `tools.py`: три LangChain tools - `web_search`, `read_url`, `write_report`.
+- `agent.py`: `ChatOpenAI` для LM Studio, `create_agent`, `InMemorySaver`, ліміти tool/model calls.
+- `main.py`: REPL з одним `thread_id` на сесію, щоб агент пам'ятав попередні повідомлення.
+
+Перед кожним практичним блоком варто перевірити себе: навіщо потрібна tool schema, чому `web_search` не замінює `read_url`, як працює `thread_id` з checkpointer, і чому tool output треба обрізати до потрапляння в контекст LLM.
+
 **Приклад взаємодії:**
 ```
 User: "Порівняй три підходи до побудови RAG: naive, sentence-window та parent-child retrieval"
