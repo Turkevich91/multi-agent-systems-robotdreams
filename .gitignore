@@ -37,3 +37,4 @@ Desktop.ini
 *.faiss
 *.pkl
 chroma_db/
+resources
