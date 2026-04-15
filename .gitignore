@@ -37,4 +37,5 @@ Desktop.ini
 *.faiss
 *.pkl
 chroma_db/
+homework-lesson-*/index/
 resources

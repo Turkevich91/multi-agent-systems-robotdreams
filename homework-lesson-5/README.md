@@ -24,10 +24,10 @@
 - **Завантаження документів** — PDF файли з директорії `./data/`
 - **Chunking** — розбиття на чанки з `RecursiveCharacterTextSplitter` (або semantic chunking — за бажанням)
 - **Embeddings** — використайте `text-embedding-3-small` або `text-embedding-3-large`
-- **Векторна БД** — оберіть одну з: FAISS (для простоти), Qdrant, Chroma, або pgvector
-- **Збереження індексу** — індекс повинен зберігатися на диск і перезавантажуватися без повторного embedding
+- **Векторна БД** — Qdrant у Docker
+- **Збереження індексу** — vectors зберігаються у Qdrant Docker volume, а chunks для BM25 і manifest зберігаються локально в `index/`
 
-Скрипт запускається окремо: `python ingest.py` — і створює/оновлює індекс.
+Скрипт запускається окремо: `python ingest.py` або `uv run python ingest.py` — і створює/оновлює Qdrant collection та локальні BM25 chunks.
 
 #### 2. Hybrid Retrieval з Reranking (`retriever.py`)
 
@@ -69,14 +69,72 @@ homework-lesson-5/
 ├── requirements.txt     # Залежності
 ├── data/                # Документи для ingestion
 │   └── (ваші PDF/TXT файли)
+├── index/               # Generated chunks для BM25, не комітиться
+├── uml_diagram/         # Mermaid UML-діаграми
+├── SUBMISSION_NOTES.md  # Опис ходу роботи для перевірки
 └── .env                 # API ключі (не комітити!)
 ```
 
 ---
 
+### Запуск реалізації
+
+1. Встановіть залежності:
+   ```powershell
+   cd C:\Users\vetal\PycharmProjects\ROBOT-DREAMS-MULTI-AGENT-SYSTEMS
+   uv sync
+   ```
+
+2. Налаштуйте `.env` у корені репозиторію. Якщо чат-модель працює через LM Studio, а embeddings — через інший endpoint, можна розділити налаштування. Якщо `OPENAI_BASE_URL` вказує на `localhost` або `127.0.0.1`, embeddings за замовчуванням будуть відправлені в `https://api.openai.com/v1`.
+   ```env
+   OPENAI_API_KEY=...
+   OPENAI_BASE_URL=http://127.0.0.1:1234/v1
+   MODEL_NAME=google/gemma-4-26b-a4b
+
+   OPENAI_EMBEDDING_BASE_URL=https://api.openai.com/v1
+   OPENAI_EMBEDDING_API_KEY=...
+   EMBEDDING_MODEL=text-embedding-3-small
+
+   QDRANT_URL=http://localhost:6333
+   QDRANT_COLLECTION=homework_lesson_5_knowledge
+   ```
+
+3. Запустіть Qdrant на стандартних портах:
+   ```powershell
+   docker run -d --name qdrant `
+     -p 6333:6333 `
+     -p 6334:6334 `
+     -v qdrant_storage:/qdrant/storage `
+     qdrant/qdrant:latest
+   ```
+
+   Якщо контейнер уже створений:
+   ```powershell
+   docker start qdrant
+   ```
+
+4. Створіть chunks, embeddings і наповніть Qdrant:
+   ```powershell
+   cd homework-lesson-5
+   uv run python ingest.py
+   ```
+
+5. Запустіть агента:
+   ```powershell
+   uv run python main.py
+   ```
+
+6. Для правильного відображення UML-діаграм у Markdown потрібна підтримка Mermaid. У PyCharm/IntelliJ встановіть плагін Mermaid або відкривайте файл у GitHub/GitLab/VS Code з Mermaid preview.
+
+Додаткова документація:
+- `SUBMISSION_NOTES.md` — опис виконаних кроків у форматі `Намір - Дія - Висновок`.
+- `uml_diagram/RAG_SYSTEM_MERMAID.md` — Mermaid-схеми ingestion, retrieval та компонентів.
+
+---
+
 ### Очікуваний результат
 
-1. **Ingestion працює** — `python ingest.py` завантажує документи з `./data/` та створює індекс
+1. **Ingestion працює** — `python ingest.py` завантажує документи з `./data/`, створює chunks, рахує embeddings, наповнює Qdrant і зберігає `index/chunks.json` для BM25
 2. **Hybrid search** — пошук використовує і semantic, і BM25, результати об'єднуються
 3. **Reranking** — cross-encoder фільтрує нерелевантні результати
 4. **Агент використовує RAG** — агент самостійно вирішує, коли шукати в базі знань, а коли в інтернеті
