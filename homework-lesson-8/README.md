@@ -2,6 +2,42 @@
 
 Розширте свого Research Agent з `homework-lesson-5` до **мультиагентної системи** з Supervisor, який координує трьох спеціалізованих суб-агентів за патерном **Plan → Research → Critique**.
 
+## Реалізація в цьому репозиторії
+
+ДЗ реалізовано як окремий runnable-проєкт у цій директорії. Система перевикористовує RAG pipeline з `homework-lesson-5`:
+
+- Qdrant для semantic search
+- BM25 для lexical search
+- cross-encoder reranking
+- `web_search`, `read_url`, `knowledge_search`
+- новий `save_report`, захищений Human-in-the-Loop
+
+Після чистої Windows спочатку запустіть Docker Desktop, потім підніміть Qdrant:
+
+```powershell
+docker run -d --name qdrant `
+  -p 6333:6333 `
+  -p 6334:6334 `
+  -v qdrant_storage:/qdrant/storage `
+  qdrant/qdrant:latest
+```
+
+Якщо контейнер уже існує:
+
+```powershell
+docker start qdrant
+```
+
+Після цього створіть індекс і запустіть REPL:
+
+```powershell
+cd C:\Users\vetal\PycharmProjects\multi-agent-systems-robotdreams\homework-lesson-8
+uv run python ingest.py
+uv run python main.py
+```
+
+Детальні команди перевірки описані в `SUBMISSION_NOTES.md`.
+
 ---
 
 ### Що змінюється порівняно з homework-5

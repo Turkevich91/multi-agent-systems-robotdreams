@@ -38,4 +38,5 @@ Desktop.ini
 *.pkl
 chroma_db/
 homework-lesson-*/index/
+homework-lesson-*/output/
 resources
