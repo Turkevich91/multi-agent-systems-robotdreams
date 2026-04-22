@@ -1,5 +1,7 @@
 import json
+import re
 import sys
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
@@ -8,6 +10,7 @@ from langgraph.types import Command
 
 from config import settings
 from supervisor import supervisor
+from tools import save_report as save_report_tool
 
 
 def _configure_console_encoding() -> None:
@@ -45,7 +48,7 @@ def _normalize_messages(messages: Any) -> list[Any]:
     return [messages]
 
 
-def _print_update(update: Any, final_response: list[str]) -> None:
+def _print_update(update: Any, final_response: list[str], trace: dict[str, Any] | None = None) -> None:
     if not isinstance(update, dict):
         return
 
@@ -60,16 +63,31 @@ def _print_update(update: Any, final_response: list[str]) -> None:
         if message_type == "ai" and tool_calls:
             for call in tool_calls:
                 name = call.get("name", "unknown_tool")
-                args = call.get("args", {})
+                args = call.get("args", {}) or {}
                 print(f"\nTool -> {name}: {_shorten(args, 500)}")
+                if trace is not None and name == "save_report":
+                    trace["save_report_called"] = True
+                    filename = args.get("filename")
+                    if filename:
+                        trace["proposed_filename"] = str(filename)
+                    content = args.get("content")
+                    if content:
+                        trace["proposed_content"] = str(content)
         elif message_type == "tool":
             name = getattr(message, "name", "tool")
             content = getattr(message, "content", "")
             print(f"\nTool <- {name}: {_shorten(content, 700)}")
+            if trace is not None and name == "save_report":
+                text = str(content or "")
+                if text.startswith("Report saved to"):
+                    trace["save_report_succeeded"] = True
+                    trace["save_report_message"] = text
         elif message_type == "ai":
             text = _message_content_text(message)
             if text:
                 final_response[0] = text
+                if trace is not None:
+                    trace["final_ai_text"] = text
 
 
 def _extract_interrupts(data: Any) -> list[Any]:
@@ -107,7 +125,7 @@ def _iter_stream_updates(chunk: Any) -> tuple[dict[str, Any] | None, list[Any]]:
     return data, interrupts
 
 
-def _run_stream(payload: Any, config: dict) -> list[Any]:
+def _run_stream(payload: Any, config: dict, trace: dict[str, Any] | None = None) -> list[Any]:
     final_response = [""]
     interrupts: list[Any] = []
 
@@ -126,7 +144,7 @@ def _run_stream(payload: Any, config: dict) -> list[Any]:
             continue
 
         for update in data.values():
-            _print_update(update, final_response)
+            _print_update(update, final_response, trace)
 
     if final_response[0]:
         print(f"\nAgent:\n{final_response[0]}")
@@ -201,7 +219,7 @@ def _decision_from_user() -> dict[str, Any]:
         print("Please type approve, edit, or reject.")
 
 
-def _resume_after_interrupt(interrupts: list[Any], config: dict) -> list[Any]:
+def _resume_after_interrupt(interrupts: list[Any], config: dict, trace: dict[str, Any] | None = None) -> list[Any]:
     if not interrupts:
         return []
 
@@ -212,7 +230,87 @@ def _resume_after_interrupt(interrupts: list[Any], config: dict) -> list[Any]:
         decision = _decision_from_user()
         decisions.extend([decision] * action_count)
 
-    return _run_stream(Command(resume={"decisions": decisions}), config)
+    return _run_stream(Command(resume={"decisions": decisions}), config, trace)
+
+
+def _slugify_filename(text: str, fallback: str = "research_report") -> str:
+    """Turn a free-form string into a safe .md filename."""
+    base = re.sub(r"[^A-Za-z0-9._ -]+", "_", text).strip(" ._-")
+    if not base:
+        base = fallback
+    return base if base.lower().endswith(".md") else f"{base}.md"
+
+
+def _derive_fallback_filename(user_request: str, trace: dict[str, Any]) -> str:
+    if trace.get("proposed_filename"):
+        return _slugify_filename(str(trace["proposed_filename"]))
+
+    first_line = next((line.strip() for line in user_request.splitlines() if line.strip()), "")
+    stem = first_line[:60] if first_line else f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    return _slugify_filename(stem)
+
+
+def _ensure_report_saved(
+    user_request: str,
+    config: dict,
+    trace: dict[str, Any],
+) -> None:
+    """Make sure a report ends up on disk even if a weak local model forgets save_report.
+
+    Two-stage safety net:
+      1. Send an explicit reminder message to the Supervisor and run one more
+         HITL-aware turn.
+      2. If still not saved, write the final AI text directly via save_report
+         (HITL is bypassed — announced to the user).
+    """
+    if trace.get("save_report_succeeded"):
+        return
+
+    print("\nSupervisor did not persist a report. Sending an explicit reminder...")
+    reminder = (
+        "You have not called save_report yet. You MUST persist the final "
+        "Markdown report now. Call save_report(filename, content) exactly once "
+        "with a descriptive filename ending in .md and the full Markdown body "
+        "of the report you produced. Do not ask the user for permission — just "
+        "call the tool. If you do not remember the content, recompose the "
+        "report from the last research and critique results."
+    )
+    try:
+        interrupts = _run_stream(
+            {"messages": [{"role": "user", "content": reminder}]},
+            config,
+            trace,
+        )
+        while interrupts:
+            interrupts = _resume_after_interrupt(interrupts, config, trace)
+    except GraphRecursionError:
+        print("Reminder stream stopped: recursion limit reached.")
+    except Exception as exc:
+        print(f"Reminder stream error: {exc}")
+
+    if trace.get("save_report_succeeded"):
+        return
+
+    content = str(trace.get("proposed_content") or trace.get("final_ai_text") or "").strip()
+    if not content:
+        print(
+            "Fallback save skipped: Supervisor produced no final text to persist.\n"
+            "Please rerun with a simpler query or a stronger chat model."
+        )
+        return
+
+    filename = _derive_fallback_filename(user_request, trace)
+    print(
+        f"\nFallback save: writing last known report text directly to '{filename}'.\n"
+        f"  (HITL is bypassed because the Supervisor failed to call save_report.)"
+    )
+    try:
+        result = save_report_tool.invoke({"filename": filename, "content": content})  # type: ignore[attr-defined]
+        print(f"  {result}")
+        trace["save_report_succeeded"] = True
+        trace["save_report_message"] = str(result)
+    except Exception as exc:
+        print(f"Fallback save failed: {exc}")
 
 
 def main() -> None:
@@ -241,12 +339,22 @@ def main() -> None:
             break
 
         try:
+            trace: dict[str, Any] = {
+                "save_report_called": False,
+                "save_report_succeeded": False,
+                "final_ai_text": "",
+                "proposed_filename": None,
+                "proposed_content": None,
+            }
             interrupts = _run_stream(
                 {"messages": [{"role": "user", "content": user_input}]},
                 config,
+                trace,
             )
             while interrupts:
-                interrupts = _resume_after_interrupt(interrupts, config)
+                interrupts = _resume_after_interrupt(interrupts, config, trace)
+
+            _ensure_report_saved(user_input, config, trace)
         except GraphRecursionError:
             print("\nSupervisor stopped: recursion limit reached.")
         except Exception as exc:

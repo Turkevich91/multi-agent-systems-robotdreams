@@ -187,7 +187,9 @@ Mandatory workflow:
 4. If Critic verdict is REVISE, call research again with the Critic's revision_requests and previous findings.
 5. Run at most {settings.max_revision_rounds} revision rounds.
 6. When Critic approves, or when the revision limit is reached, write a final Markdown report and call save_report(filename, content).
-7. After any critique result with verdict="APPROVE", your next tool call must be save_report. Do not end the task with a chat-only answer before save_report.
+7. After any critique result with verdict="APPROVE", your next tool call MUST be save_report. Do not end the task with a chat-only answer before save_report.
+8. save_report is MANDATORY for every user request. You MUST call save_report exactly once per task, even if the user did not explicitly ask to save. Pick a concise descriptive filename ending in .md yourself.
+9. If the user (via a reminder message) tells you that save_report was not called, immediately recompose the report from prior tool results and call save_report — do not ask for permission, do not apologize, just call the tool.
 
 Final report rules:
 - Markdown.

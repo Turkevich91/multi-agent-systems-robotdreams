@@ -31,6 +31,7 @@ RAG-пайплайн (Qdrant, BM25, reranking, embeddings через OpenAI, cha
 | Винести промпти і налаштування | `PLANNER_PROMPT`, `RESEARCH_PROMPT`, `CRITIC_PROMPT`, `SUPERVISOR_PROMPT` + `Settings` у `config.py`, `.env` читається з кореня курсу | Усі промпти і параметри редагуються в одному місці, API-ключі та model name беруться з `.env` |
 | Запустити end-to-end smoke-тест | Запит `"Briefly compare naive RAG and sentence-window retrieval. Write a short Markdown report..."` з `MODEL_NAME=google/gemma-4-26b-a4b` | Supervisor викликав `plan → research → critique (APPROVE) → save_report`; HITL перехопив; після `edit`-фідбеку Supervisor додав TL;DR і повторно викликав `save_report`; після `approve` файл збережено як `output/rag_compare_smoke.md` (3260 байт) |
 | Діагностувати проблеми на великих локальних моделях | На `google/gemma-4-31b` один раз впало в `openai.APITimeoutError` (120 с) і один раз модель видала degenerate `<unused49>` токени | Рекомендовано `google/gemma-4-26b-a4b` (MoE) і `REQUEST_TIMEOUT=600`; додано секцію Troubleshooting нижче |
+| Гарантувати збереження звіту навіть при «забудькуватій» локальній моделі | У `main.py` додано `_ensure_report_saved(...)`: після кожного турну перевіряється, чи Supervisor реально отримав `Report saved to...`; якщо ні — надсилається явне нагадування і повторний HITL-прогін; якщо й це не допомогло — пряме збереження останнього AI-тексту через `save_report.invoke(...)` з обходом HITL і попередженням | Звіт точно потрапляє у `output/` навіть якщо модель «забула» викликати інструмент; supervisor-prompt додатково посилено пунктами 8-9 про обовʼязковість `save_report` |
 | Навести архітектурні діаграми | Створено `uml_diagrams/MULTI_AGENT_MERMAID.md` з 6 Mermaid-діаграмами: загальна архітектура, evaluator-optimizer state diagram, sequence для одного запиту, class diagram agent-as-tool, HITL flow, gitignore map | Перевіряючий бачить архітектуру без потреби читати весь код |
 | Привести `.gitignore` у відповідність до hw8 | У корені курсу вже діють правила `homework-lesson-*/index/`, `homework-lesson-*/output/`, `resources`, `.env`, `__pycache__/`, `.venv/` | У Git потрапляє тільки код + документація + `data/*.pdf` + `requirements.txt`; згенеровані артефакти та лекційні ресурси лишаються локально |
 
@@ -152,6 +153,7 @@ Trace (`supervisor.stream(..., stream_mode=["updates"])`):
 - **Модель видає `<unused49><unused49>...` токени** — degenerate-вивід Gemma при зламаному chat-template або перевантаженні контексту. Перезапустити LM Studio та/або перейти на іншу модель.
 - **Critic щоразу повертає `REVISE` з однаковими gaps** — перевірити Qdrant (`/healthz`, `count=464`) і перезапустити `ingest.py`. `critic_fallback_agent` рятує від зламаного JSON, але не від порожньої бази знань.
 - **HITL `edit`** реалізовано як `Command(resume={"decisions": [{"type": "reject", "message": feedback}]})` у `main.py`. Supervisor-prompt містить інструкцію: побачивши reject з фідбеком — переробити звіт і викликати `save_report` знову.
+- **Модель «забула» викликати `save_report`** — це очікуваний режим відмови для слабких локальних моделей. `main.py:_ensure_report_saved(...)` спершу надсилає Supervisor явне нагадування і проганяє ще один HITL-раунд; якщо і це не спрацювало — напряму викликає `save_report.invoke(...)` з останнім зафіксованим AI-текстом (з обходом HITL і явним попередженням у консолі). Це гарантує, що файл опиниться в `output/` для кожного запиту.
 
 ## Що комітиться в Git і що треба відтворити локально
 
@@ -211,6 +213,7 @@ uv run python main.py
 - Critic може вимагати до `max_revision_rounds=2` раундів доопрацювання.
 - `save_report` захищений `HumanInTheLoopMiddleware(interrupt_on={"save_report": True})`.
 - `approve` зберігає звіт, `edit` надсилає фідбек для нової спроби збереження, `reject` повністю скасовує збереження.
+- `main.py:_ensure_report_saved(...)` гарантує, що `save_report` виконається навіть якщо слабка локальна модель «забула» його викликати (нагадування + прямий fallback-запис).
 - Mermaid-діаграми є в `uml_diagrams/MULTI_AGENT_MERMAID.md`.
 - У Git потрапляє тільки код, документація, `data/*.pdf` і `requirements.txt`; `index/`, `output/`, `resources/`, `.env`, `.venv/`, `__pycache__/` — ігноруються і відтворюються локально.
 
