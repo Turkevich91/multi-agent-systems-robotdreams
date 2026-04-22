@@ -16,15 +16,69 @@ Canonical save path для ДЗ: `Supervisor -> save_report -> HumanInTheLoopMid
 
 ## Для перевіряючого: що дивитися без запуску
 
-| Очікування ДЗ | Де видно в репозиторії | Що саме перевірити |
+### Рекомендований порядок перегляду (≈ 10 хв)
+
+1. **`README.md`** — офіційні вимоги ДЗ.
+2. **`SUBMISSION_NOTES.md` → секція «Requirement → Code map»** (нижче) — кожна вимога ДЗ з точним `файл:рядок` anchor у коді.
+3. **`uml_diagrams/MULTI_AGENT_MERMAID.md`** — 6 Mermaid-діаграм, візуалізує архітектуру та HITL-flow без потреби читати код.
+4. **`output/*.md`** (4 tracked sample reports) — реальний вивід системи, кожний демонструє свою частину workflow (див. таблицю нижче).
+5. **`SUBMISSION_NOTES.md` → «Verified End-to-End Run»** — покроковий trace одного повного прогону з байтами і HITL-рішеннями.
+
+### Requirement → Code map
+
+| Вимога ДЗ | Файл:рядок | Що саме |
 |---|---|---|
-| Supervisor координує Plan → Research → Critique → Report | `supervisor.py`, `config.py`, діаграми 1-3 | Supervisor має tools `[plan, research, critique, save_report]`, prompt вимагає порядок викликів і revision-loop |
-| Planner і Critic мають structured output | `schemas.py`, `agents/planner.py`, `agents/critic.py` | `ResearchPlan`, `CritiqueResult`, `response_format=ToolStrategy(...)`, JSON fallback тільки для локальних моделей |
-| Researcher перевикористовує RAG/tools з hw5 | `agents/research.py`, `tools.py`, `retriever.py`, `ingest.py` | `knowledge_search`, `web_search`, `read_url`, Qdrant + BM25 + cross-encoder reranking |
-| Critic може відправити на доопрацювання, але не безкінечно | `agents/critic.py`, `config.py`, діаграма 2 | `max_revision_rounds=2`, після ліміту повертається approve для фіналізації |
-| Запис захищений Human-in-the-loop | `supervisor.py`, `main.py`, діаграма 5 | `HumanInTheLoopMiddleware(interrupt_on={"save_report": True})`, REPL показує preview і приймає `approve/edit/reject` |
-| Є доказ реального end-to-end прогону | секція `Verified End-to-End Run` нижче | Trace показує `plan → research → critique → save_report`, `edit`, повторний `save_report`, `approve` |
-| Є приклади готових звітів без запуску | `output/*.md` tracked samples | 4 звіти спеціально залишені в Git як reviewer artifacts, решта нових output-файлів ігнорується |
+| Supervisor з 4 tools і фіксованим workflow | `supervisor.py:19-26`, `config.py:177-205` | `create_agent(tools=[plan, research, critique, save_report], ...)` + 9-пунктний SUPERVISOR_PROMPT |
+| Checkpointer для HITL | `supervisor.py:16,37` | `memory = InMemorySaver()` + `checkpointer=memory` |
+| HITL на `save_report` | `supervisor.py:24-26` | `HumanInTheLoopMiddleware(interrupt_on={"save_report": True})` |
+| Planner structured output | `agents/planner.py:30-34`, `schemas.py:6-12` | `create_agent(..., response_format=ToolStrategy(ResearchPlan))` |
+| Planner JSON fallback для слабких моделей | `agents/planner.py:39+` | `planner_fallback_agent` + `_json_from_text` + `_normalize_payload` |
+| Research subagent з RAG/web tools hw5 | `agents/research.py:24-29`, `tools.py` | `[web_search, read_url, knowledge_search]` |
+| Critic structured output | `agents/critic.py:31-35`, `schemas.py:15-22` | `create_agent(..., response_format=ToolStrategy(CritiqueResult))` з 7 полями включно з `verdict: Literal["APPROVE","REVISE"]` |
+| Critic 3 виміри оцінки + current date | `config.py:154-174` | freshness / completeness / structure + `Current date: {CURRENT_DATE}` |
+| Ліміт ітерацій Critic | `agents/critic.py:136`, `config.py:70` | `max_revision_rounds=2`, авто-APPROVE після ліміту |
+| REPL з `approve / edit / reject` | `main.py:174-221` | Парсинг `__interrupt__`, збір decision, `Command(resume={"decisions": [...]})` |
+| Запобіжник «модель забула save_report» | `main.py:253-316`, `config.py:191-192` | `_ensure_report_saved`: нагадування → повторний HITL → last-resort direct write |
+| RAG-пайплайн перевикористано | `retriever.py`, `ingest.py`, `tools.py:knowledge_search` | Qdrant + BM25 + `BAAI/bge-reranker-base`, колекція `homework_lesson_8_knowledge` 464 points |
+
+### Що показує кожен tracked sample report (у `output/`)
+
+Усі файли — реальні виводи системи, не вручну написані. Доказ, що Supervisor дійсно пише Markdown і `save_report` спрацьовує після HITL-approve.
+
+| Файл | Що демонструє ревʼюеру |
+|---|---|
+| `RAG_Definition_Report.md` | **Workflow на доменній темі з knowledge_base**: визначення RAG, механізм, переваги, джерела `retrieval-augmented-generation.pdf` + `large-language-model.pdf` — показує, що `knowledge_search` реально знаходить chunks з Qdrant |
+| `vector_db_optimization_for_agents.md` | **Складна структурована відповідь**: 4 секції + порівняльна таблиця Pinecone/Milvus/Weaviate/Qdrant/Chroma — доказ, що Supervisor складає багатосекційний Markdown-звіт з чіткою структурою, як вимагає prompt |
+| `walking_health_report.md`, `best_headphones_for_walking_hiking.md` | **Web-only запити**: теми поза knowledge base — показує, що система коректно переключається на `web_search`/`read_url`, коли `knowledge_base` не релевантна (Planner правильно ставить `sources_to_check=["web"]`) |
+
+Решта нових `output/*.md` після локальних прогонів не комітиться (правило `homework-lesson-*/output/`), щоб репо не забивалось.
+
+### Формат stream-output (щоб уявити REPL без запуску)
+
+`main.py` стрімить `supervisor.stream(..., stream_mode=["updates"])` і друкує кожен tool-виклик у компактному форматі (`main.py:51-92`):
+
+```text
+Tool -> plan: {'request': 'Compare naive RAG and sentence-window retrieval...'}
+Tool <- plan: ResearchPlan(goal='...', search_queries=[...], sources_to_check=['knowledge_base','web'], ...)
+
+Tool -> research: {'request': 'Execute plan: ...'}
+Tool <- research: ## Findings\n1. Naive RAG...\n2. Sentence-window...\nSources: ...
+
+Tool -> critique: {'findings': '...'}
+Tool <- critique: CritiqueResult(verdict='APPROVE', is_fresh=True, is_complete=True, ...)
+
+Tool -> save_report: {'filename': 'rag_compare.md', 'content': '# ...'}
+
+============================================================
+⏸  ACTION REQUIRES APPROVAL
+============================================================
+  Tool:  save_report
+  Args:  filename=rag_compare.md, content=# Comparison of RAG Approaches...
+
+👉 approve / edit / reject:
+```
+
+Саме цей потік виробляє файли з попередньої таблиці.
 
 ## Намір - Дія - Висновок
 
@@ -44,7 +98,7 @@ Canonical save path для ДЗ: `Supervisor -> save_report -> HumanInTheLoopMid
 | Зрозуміти, як LangChain інтерпретує `edit` | На практиці `edit` = `type=reject` з повідомленням-фідбеком, яке модель має прочитати і відповісти revised-викликом `save_report` | В `main.py` обидві гілки `edit` і `reject` відправляють `type=reject`, але з різними `message`; supervisor-prompt описує, як обробляти кожен випадок |
 | Винести промпти і налаштування | `PLANNER_PROMPT`, `RESEARCH_PROMPT`, `CRITIC_PROMPT`, `SUPERVISOR_PROMPT` + `Settings` у `config.py`, `.env` читається з кореня курсу | Усі промпти і параметри редагуються в одному місці, API-ключі та model name беруться з `.env` |
 | Запустити end-to-end smoke-тест | Запит `"Briefly compare naive RAG and sentence-window retrieval. Write a short Markdown report..."` з `MODEL_NAME=google/gemma-4-26b-a4b` | Supervisor викликав `plan → research → critique (APPROVE) → save_report`; HITL перехопив; після `edit`-фідбеку Supervisor додав TL;DR і повторно викликав `save_report`; після `approve` файл збережено як `output/rag_compare_smoke.md` (3260 байт) |
-| Діагностувати проблеми на великих локальних моделях | На `google/gemma-4-31b` один раз впало в `openai.APITimeoutError` (120 с) і один раз модель видала degenerate `<unused49>` токени | Рекомендовано `google/gemma-4-26b-a4b` (MoE) і `REQUEST_TIMEOUT=600`; додано секцію Troubleshooting нижче |
+| Діагностувати проблеми на великих локальних моделях | На `google/gemma-4-31b` один раз впало в `openai.APITimeoutError` (120 с) і один раз модель видала degenerate `<unused49>` токени | Замість підняття таймауту — прискорено інференс: `google/gemma-4-26b-a4b` (MoE) повністю у VRAM, монітор переключено на iGPU Intel Ultra 9 285K (звільнило ~2 ГБ VRAM для розширення context window). `REQUEST_TIMEOUT=120` лишився, бо став достатнім. Ця ж зміна прибрала і «забудькуватість» моделі щодо фінального `save_report`. |
 | Описати аварійну страховку для слабких локальних моделей | У `main.py` залишено `_ensure_report_saved(...)`: спершу перевіряється, чи Supervisor пройшов штатний шлях `save_report` + HITL; якщо ні — надсилається явне нагадування і повторний HITL-прогін; прямий fallback-запис використовується тільки якщо модель вдруге не викликала `save_report` | У нормальному сценарії ДЗ запис іде через `HumanInTheLoopMiddleware`; fallback — це виняток для локальної/бюджетної моделі, яка порушила tool-calling contract, а не основний workflow |
 | Навести архітектурні діаграми | Створено `uml_diagrams/MULTI_AGENT_MERMAID.md` з 6 Mermaid-діаграмами: загальна архітектура, evaluator-optimizer state diagram, sequence для одного запиту, class diagram agent-as-tool, HITL flow, gitignore map | Перевіряючий бачить архітектуру без потреби читати весь код |
 | Привести `.gitignore` у відповідність до hw8 | У корені курсу вже діють правила `homework-lesson-*/index/`, `homework-lesson-*/output/`, `resources`, `.env`, `__pycache__/`, `.venv/` | У Git потрапляє код + документація + `data/*.pdf` + `requirements.txt` + кілька вже tracked sample reports для ревʼю; нові generated output, `index/`, `resources/`, `.env` лишаються локально |
@@ -89,7 +143,7 @@ OPENAI_API_KEY=sk-...
 OPENAI_BASE_URL=http://127.0.0.1:1234/v1
 MODEL_NAME=google/gemma-4-26b-a4b
 TEMPERATURE=0.2
-REQUEST_TIMEOUT=600
+REQUEST_TIMEOUT=120
 MAX_RETRIES=1
 ```
 
@@ -163,11 +217,14 @@ Trace (`supervisor.stream(..., stream_mode=["updates"])`):
 
 ## Troubleshooting
 
-- **`openai.APITimeoutError: Request timed out`** — локальна модель не встигає відповісти за 120 с. Підняти `REQUEST_TIMEOUT=600` у `.env` та/або перейти на легшу модель (`google/gemma-4-26b-a4b` MoE).
-- **Модель видає `<unused49><unused49>...` токени** — degenerate-вивід Gemma при зламаному chat-template або перевантаженні контексту. Перезапустити LM Studio та/або перейти на іншу модель.
+- **`openai.APITimeoutError: Request timed out`** — локальна модель не встигає відповісти за 120 с. Правильніший фікс, ніж піднімати таймаут — прискорити інференс: повністю розмістити модель у VRAM без offload у системну RAM, звільнити VRAM переключенням монітора на вбудовану графіку (у моєму випадку — iGPU Intel Ultra 9 285K, що звільнило ~2 ГБ VRAM і дозволило розширити context window). Після цього `REQUEST_TIMEOUT=120` вистачає з запасом.
+- **Модель видає `<unused49><unused49>...` токени** — degenerate-вивід Gemma. У моєму випадку вилікувалось так:
+  1. У LM Studio вимкнено всі експериментальні опції runtime (flash attention experimental, speculative decoding, KV-cache quantization тощо) — вони в поєднанні з Gemma 4 давали саме такі артефакти.
+  2. Підбір стабільного профілю — приблизно 8 ітерацій проб і помилок з context length / GPU offload / sampler settings.
+  3. Як фінальну модель обрано `google/gemma-4-26b-a4b` (MoE): повністю вміщується у VRAM RTX 4090 без offload у системну RAM, що прибирає і timeout-и, і залишки degenerate-токенів.
 - **Critic щоразу повертає `REVISE` з однаковими gaps** — перевірити Qdrant (`/healthz`, `count=464`) і перезапустити `ingest.py`. `critic_fallback_agent` рятує від зламаного JSON, але не від порожньої бази знань.
 - **HITL `edit`** реалізовано як `Command(resume={"decisions": [{"type": "reject", "message": feedback}]})` у `main.py`. Supervisor-prompt містить інструкцію: побачивши reject з фідбеком — переробити звіт і викликати `save_report` знову.
-- **Модель «забула» викликати `save_report`** — це режим відмови слабкої локальної або бюджетної моделі, а не штатний сценарій ДЗ. `main.py:_ensure_report_saved(...)` спершу надсилає Supervisor явне нагадування і проганяє ще один HITL-раунд; тільки якщо модель знову не викликала `save_report`, використовується прямий last-resort fallback-запис з явним попередженням у консолі. У production/нормальній здачі з достатньо сильною моделлю цей fallback не має спрацьовувати.
+- **Модель «забула» викликати `save_report`** — це режим відмови слабкої локальної або бюджетної моделі, а не штатний сценарій ДЗ. `main.py:_ensure_report_saved(...)` спершу надсилає Supervisor явне нагадування і проганяє ще один HITL-раунд; тільки якщо модель знову не викликала `save_report`, використовується прямий last-resort fallback-запис з явним попередженням у консолі. У production/нормальній здачі з достатньо сильною моделлю цей fallback не має спрацьовувати. У моєму випадку ця проблема зникла після того, як модель повністю помістилась у VRAM і було розширене context window (див. вище про переключення монітора на iGPU) — модель перестала «губити» фінальний крок workflow.
 
 ## Що комітиться в Git і що треба відтворити локально
 
@@ -186,7 +243,7 @@ Trace (`supervisor.stream(..., stream_mode=["updates"])`):
 | `main.py` | REPL з HITL interrupt/resume |
 | `requirements.txt` | Залежності |
 | `data/langchain.pdf`, `data/large-language-model.pdf`, `data/retrieval-augmented-generation.pdf` | Вхідні PDF для RAG |
-| `output/RAG_Definition_Report.md`, `output/vector_db_optimization_for_agents.md`, `output/walking_health_report.md`, `output/best_headphones_for_walking_hiking.md` | Reviewer artifacts: приклади згенерованих звітів, навмисно залишені в Git, щоб перевіряючий бачив результат без запуску |
+| `output/RAG_Definition_Report.md`, `output/vector_db_optimization_for_agents.md`, `output/walking_health_report.md`, `output/best_headphones_for_walking_hiking.md` | Reviewer artifacts: навмисно закомічені приклади згенерованих звітів (опис кожного — у секції «Що показує кожен tracked sample report» вище) |
 | `README.md` | Опис домашнього завдання |
 | `SUBMISSION_NOTES.md` | **Цей файл**: підсумок + таблиця Намір-Дія-Висновок + reproducible commands |
 | `uml_diagrams/MULTI_AGENT_MERMAID.md` | Mermaid-діаграми архітектури |
