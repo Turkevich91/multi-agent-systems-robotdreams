@@ -255,13 +255,16 @@ def _ensure_report_saved(
     config: dict,
     trace: dict[str, Any],
 ) -> None:
-    """Make sure a report ends up on disk even if a weak local model forgets save_report.
+    """Last-resort safeguard for weak/local models that skip save_report.
+
+    This is not the baseline homework workflow. The canonical Lesson 8 path is:
+    Supervisor -> save_report -> HumanInTheLoopMiddleware -> approve/edit/reject.
 
     Two-stage safety net:
       1. Send an explicit reminder message to the Supervisor and run one more
          HITL-aware turn.
       2. If still not saved, write the final AI text directly via save_report
-         (HITL is bypassed — announced to the user).
+         only as an emergency local-model fallback.
     """
     if trace.get("save_report_succeeded"):
         return
@@ -302,7 +305,7 @@ def _ensure_report_saved(
     filename = _derive_fallback_filename(user_request, trace)
     print(
         f"\nFallback save: writing last known report text directly to '{filename}'.\n"
-        f"  (HITL is bypassed because the Supervisor failed to call save_report.)"
+        f"  (Last-resort local-model fallback: canonical HITL flow failed twice.)"
     )
     try:
         result = save_report_tool.invoke({"filename": filename, "content": content})  # type: ignore[attr-defined]

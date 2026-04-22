@@ -39,6 +39,20 @@ uv run python main.py
 Детальні команди перевірки описані в `SUBMISSION_NOTES.md`.
 Архітектурні Mermaid-діаграми — у `uml_diagrams/MULTI_AGENT_MERMAID.md`.
 
+## Reviewer quick pass
+
+Якщо перевіряючий не хоче піднімати Docker, LM Studio і Qdrant локально, основні докази вже лежать у репозиторії:
+
+- `SUBMISSION_NOTES.md` — evidence map, end-to-end trace, команди відтворення і acceptance checklist.
+- `uml_diagrams/MULTI_AGENT_MERMAID.md` — архітектура Supervisor + sub-agents, evaluator-optimizer loop, HITL flow.
+- `output/RAG_Definition_Report.md`, `output/vector_db_optimization_for_agents.md`, `output/walking_health_report.md`, `output/best_headphones_for_walking_hiking.md` — приклади згенерованих звітів, навмисно залишені в Git для ревʼю без ручного запуску.
+
+## Fallback note
+
+У штатному сценарії запис проходить тільки через `save_report` і `HumanInTheLoopMiddleware`: Supervisor викликає tool, REPL показує preview, а користувач обирає `approve`, `edit` або `reject`.
+
+Прямий fallback-запис у `main.py` існує лише як аварійна страховка для слабких локальних моделей або навчального середовища без бюджету на сильнішу модель, якщо модель порушила tool-calling contract і не викликала `save_report`. У нормальних умовах з достатньо сильною моделлю fallback не має спрацьовувати і не є canonical workflow ДЗ.
+
 ---
 
 ### Що змінюється порівняно з homework-5
@@ -70,7 +84,7 @@ Supervisor Agent
   │       ├── verdict: "APPROVE"  → go to step 4
   │       └── verdict: "REVISE"   → back to step 2 with feedback
   │
-  └── 4. write_report(...)   → save_report tool   → HITL gated
+  └── 4. save_report(...)    → save_report tool   → HITL gated
 ```
 
 **Ключовий патерн:** Supervisor оркеструє ітеративний цикл — Critic може відхилити дослідження і повернути його з конкретним зворотним зв'язком. Це патерн **evaluator-optimizer** з Лекції 7.
@@ -243,7 +257,7 @@ homework-lesson-8/
 
 ### Очікуваний результат
 
-1. **Ingestion працює** — `python ingest.py` будує FAISS-індекс (так само як у hw5)
+1. **Ingestion працює** — `python ingest.py` наповнює Qdrant collection і локальний BM25 index
 2. **Planner декомпозує** — запит користувача розбивається у структурований `ResearchPlan`
 3. **Researcher виконує** — слідує плану, використовує web + knowledge base
 4. **Critic оцінює** — повертає структурований `CritiqueResult` з verdict

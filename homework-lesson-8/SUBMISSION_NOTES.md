@@ -12,6 +12,20 @@
 
 RAG-пайплайн (Qdrant, BM25, reranking, embeddings через OpenAI, chat через LM Studio) перевикористовується без змін з hw5. Нове в hw8 — мультиагентна координація, структуровані Pydantic-виводи через `ToolStrategy`, ітеративний revision-loop і HITL на запис.
 
+Canonical save path для ДЗ: `Supervisor -> save_report -> HumanInTheLoopMiddleware -> approve/edit/reject`. Прямий fallback-запис у `main.py` залишено тільки як аварійну страховку для локального навчального середовища, коли слабка або бюджетна модель порушує tool-calling contract і не викликає `save_report`. У нормальних умовах з достатньо сильною моделлю оркестратор діє саме за вимогами ДЗ, а fallback не спрацьовує.
+
+## Для перевіряючого: що дивитися без запуску
+
+| Очікування ДЗ | Де видно в репозиторії | Що саме перевірити |
+|---|---|---|
+| Supervisor координує Plan → Research → Critique → Report | `supervisor.py`, `config.py`, діаграми 1-3 | Supervisor має tools `[plan, research, critique, save_report]`, prompt вимагає порядок викликів і revision-loop |
+| Planner і Critic мають structured output | `schemas.py`, `agents/planner.py`, `agents/critic.py` | `ResearchPlan`, `CritiqueResult`, `response_format=ToolStrategy(...)`, JSON fallback тільки для локальних моделей |
+| Researcher перевикористовує RAG/tools з hw5 | `agents/research.py`, `tools.py`, `retriever.py`, `ingest.py` | `knowledge_search`, `web_search`, `read_url`, Qdrant + BM25 + cross-encoder reranking |
+| Critic може відправити на доопрацювання, але не безкінечно | `agents/critic.py`, `config.py`, діаграма 2 | `max_revision_rounds=2`, після ліміту повертається approve для фіналізації |
+| Запис захищений Human-in-the-loop | `supervisor.py`, `main.py`, діаграма 5 | `HumanInTheLoopMiddleware(interrupt_on={"save_report": True})`, REPL показує preview і приймає `approve/edit/reject` |
+| Є доказ реального end-to-end прогону | секція `Verified End-to-End Run` нижче | Trace показує `plan → research → critique → save_report`, `edit`, повторний `save_report`, `approve` |
+| Є приклади готових звітів без запуску | `output/*.md` tracked samples | 4 звіти спеціально залишені в Git як reviewer artifacts, решта нових output-файлів ігнорується |
+
 ## Намір - Дія - Висновок
 
 | Намір | Дія | Висновок |
@@ -31,9 +45,9 @@ RAG-пайплайн (Qdrant, BM25, reranking, embeddings через OpenAI, cha
 | Винести промпти і налаштування | `PLANNER_PROMPT`, `RESEARCH_PROMPT`, `CRITIC_PROMPT`, `SUPERVISOR_PROMPT` + `Settings` у `config.py`, `.env` читається з кореня курсу | Усі промпти і параметри редагуються в одному місці, API-ключі та model name беруться з `.env` |
 | Запустити end-to-end smoke-тест | Запит `"Briefly compare naive RAG and sentence-window retrieval. Write a short Markdown report..."` з `MODEL_NAME=google/gemma-4-26b-a4b` | Supervisor викликав `plan → research → critique (APPROVE) → save_report`; HITL перехопив; після `edit`-фідбеку Supervisor додав TL;DR і повторно викликав `save_report`; після `approve` файл збережено як `output/rag_compare_smoke.md` (3260 байт) |
 | Діагностувати проблеми на великих локальних моделях | На `google/gemma-4-31b` один раз впало в `openai.APITimeoutError` (120 с) і один раз модель видала degenerate `<unused49>` токени | Рекомендовано `google/gemma-4-26b-a4b` (MoE) і `REQUEST_TIMEOUT=600`; додано секцію Troubleshooting нижче |
-| Гарантувати збереження звіту навіть при «забудькуватій» локальній моделі | У `main.py` додано `_ensure_report_saved(...)`: після кожного турну перевіряється, чи Supervisor реально отримав `Report saved to...`; якщо ні — надсилається явне нагадування і повторний HITL-прогін; якщо й це не допомогло — пряме збереження останнього AI-тексту через `save_report.invoke(...)` з обходом HITL і попередженням | Звіт точно потрапляє у `output/` навіть якщо модель «забула» викликати інструмент; supervisor-prompt додатково посилено пунктами 8-9 про обовʼязковість `save_report` |
+| Описати аварійну страховку для слабких локальних моделей | У `main.py` залишено `_ensure_report_saved(...)`: спершу перевіряється, чи Supervisor пройшов штатний шлях `save_report` + HITL; якщо ні — надсилається явне нагадування і повторний HITL-прогін; прямий fallback-запис використовується тільки якщо модель вдруге не викликала `save_report` | У нормальному сценарії ДЗ запис іде через `HumanInTheLoopMiddleware`; fallback — це виняток для локальної/бюджетної моделі, яка порушила tool-calling contract, а не основний workflow |
 | Навести архітектурні діаграми | Створено `uml_diagrams/MULTI_AGENT_MERMAID.md` з 6 Mermaid-діаграмами: загальна архітектура, evaluator-optimizer state diagram, sequence для одного запиту, class diagram agent-as-tool, HITL flow, gitignore map | Перевіряючий бачить архітектуру без потреби читати весь код |
-| Привести `.gitignore` у відповідність до hw8 | У корені курсу вже діють правила `homework-lesson-*/index/`, `homework-lesson-*/output/`, `resources`, `.env`, `__pycache__/`, `.venv/` | У Git потрапляє тільки код + документація + `data/*.pdf` + `requirements.txt`; згенеровані артефакти та лекційні ресурси лишаються локально |
+| Привести `.gitignore` у відповідність до hw8 | У корені курсу вже діють правила `homework-lesson-*/index/`, `homework-lesson-*/output/`, `resources`, `.env`, `__pycache__/`, `.venv/` | У Git потрапляє код + документація + `data/*.pdf` + `requirements.txt` + кілька вже tracked sample reports для ревʼю; нові generated output, `index/`, `resources/`, `.env` лишаються локально |
 
 ## UML / Mermaid Diagrams
 
@@ -153,7 +167,7 @@ Trace (`supervisor.stream(..., stream_mode=["updates"])`):
 - **Модель видає `<unused49><unused49>...` токени** — degenerate-вивід Gemma при зламаному chat-template або перевантаженні контексту. Перезапустити LM Studio та/або перейти на іншу модель.
 - **Critic щоразу повертає `REVISE` з однаковими gaps** — перевірити Qdrant (`/healthz`, `count=464`) і перезапустити `ingest.py`. `critic_fallback_agent` рятує від зламаного JSON, але не від порожньої бази знань.
 - **HITL `edit`** реалізовано як `Command(resume={"decisions": [{"type": "reject", "message": feedback}]})` у `main.py`. Supervisor-prompt містить інструкцію: побачивши reject з фідбеком — переробити звіт і викликати `save_report` знову.
-- **Модель «забула» викликати `save_report`** — це очікуваний режим відмови для слабких локальних моделей. `main.py:_ensure_report_saved(...)` спершу надсилає Supervisor явне нагадування і проганяє ще один HITL-раунд; якщо і це не спрацювало — напряму викликає `save_report.invoke(...)` з останнім зафіксованим AI-текстом (з обходом HITL і явним попередженням у консолі). Це гарантує, що файл опиниться в `output/` для кожного запиту.
+- **Модель «забула» викликати `save_report`** — це режим відмови слабкої локальної або бюджетної моделі, а не штатний сценарій ДЗ. `main.py:_ensure_report_saved(...)` спершу надсилає Supervisor явне нагадування і проганяє ще один HITL-раунд; тільки якщо модель знову не викликала `save_report`, використовується прямий last-resort fallback-запис з явним попередженням у консолі. У production/нормальній здачі з достатньо сильною моделлю цей fallback не має спрацьовувати.
 
 ## Що комітиться в Git і що треба відтворити локально
 
@@ -172,6 +186,7 @@ Trace (`supervisor.stream(..., stream_mode=["updates"])`):
 | `main.py` | REPL з HITL interrupt/resume |
 | `requirements.txt` | Залежності |
 | `data/langchain.pdf`, `data/large-language-model.pdf`, `data/retrieval-augmented-generation.pdf` | Вхідні PDF для RAG |
+| `output/RAG_Definition_Report.md`, `output/vector_db_optimization_for_agents.md`, `output/walking_health_report.md`, `output/best_headphones_for_walking_hiking.md` | Reviewer artifacts: приклади згенерованих звітів, навмисно залишені в Git, щоб перевіряючий бачив результат без запуску |
 | `README.md` | Опис домашнього завдання |
 | `SUBMISSION_NOTES.md` | **Цей файл**: підсумок + таблиця Намір-Дія-Висновок + reproducible commands |
 | `uml_diagrams/MULTI_AGENT_MERMAID.md` | Mermaid-діаграми архітектури |
@@ -182,7 +197,7 @@ Trace (`supervisor.stream(..., stream_mode=["updates"])`):
 |---|---|---|
 | `.env`, `.env.*` | API ключі, `MODEL_NAME`, `REQUEST_TIMEOUT` | `.env`, `.env.*` |
 | `homework-lesson-8/index/` (`chunks.json`, `manifest.json`) | Generated BM25 chunks, відтворюється через `ingest.py` | `homework-lesson-*/index/` |
-| `homework-lesson-8/output/*.md` | Згенеровані звіти з REPL | `homework-lesson-*/output/` |
+| Нові `homework-lesson-8/output/*.md` після локальних прогонів | Згенеровані звіти з REPL; виняток — 4 tracked sample reports вище, залишені для ревʼю | `homework-lesson-*/output/` |
 | `homework-lesson-8/resources/` (лекційний notebook, посилання) | Навчальні матеріали, не частина здачі | `resources` |
 | `homework-lesson-8/__pycache__/` | Python bytecode cache | `__pycache__/` |
 | `.venv/` | Віртуальне оточення | `.venv/` |
@@ -213,9 +228,9 @@ uv run python main.py
 - Critic може вимагати до `max_revision_rounds=2` раундів доопрацювання.
 - `save_report` захищений `HumanInTheLoopMiddleware(interrupt_on={"save_report": True})`.
 - `approve` зберігає звіт, `edit` надсилає фідбек для нової спроби збереження, `reject` повністю скасовує збереження.
-- `main.py:_ensure_report_saved(...)` гарантує, що `save_report` виконається навіть якщо слабка локальна модель «забула» його викликати (нагадування + прямий fallback-запис).
+- `main.py:_ensure_report_saved(...)` задокументовано як emergency fallback: штатний шлях лишається `save_report` + HITL, а прямий запис потрібен тільки для слабких локальних моделей, які не дотримались tool-calling contract.
 - Mermaid-діаграми є в `uml_diagrams/MULTI_AGENT_MERMAID.md`.
-- У Git потрапляє тільки код, документація, `data/*.pdf` і `requirements.txt`; `index/`, `output/`, `resources/`, `.env`, `.venv/`, `__pycache__/` — ігноруються і відтворюються локально.
+- У Git потрапляє код, документація, `data/*.pdf`, `requirements.txt` і 4 reviewer sample reports у `output/`; нові `output/`, `index/`, `resources/`, `.env`, `.venv/`, `__pycache__/` — ігноруються і відтворюються локально.
 
 
 

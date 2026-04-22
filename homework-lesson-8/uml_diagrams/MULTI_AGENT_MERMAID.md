@@ -44,7 +44,7 @@ stateDiagram-v2
     Research --> Critique : findings
     Critique --> Research : verdict=REVISE<br/>revision_requests
     Critique --> SaveReport : verdict=APPROVE
-    Research --> SaveReport : revision_limit_reached<br/>(max_revision_rounds=2)
+    Critique --> SaveReport : revision_limit_reached<br/>(max_revision_rounds=2)
     SaveReport --> HITL
     HITL --> SaveReport : edit + feedback
     HITL --> [*] : approve (saved)
@@ -192,6 +192,8 @@ flowchart TD
     Resume --> MW
 ```
 
+Ця діаграма показує canonical path ДЗ: запис проходить через `save_report` і HITL-рішення користувача. Прямий fallback-запис з `main.py` навмисно не включено в основну діаграму, бо це last-resort виняток для слабких локальних моделей або середовища без бюджету на сильнішу модель, а не штатна оркестрація Supervisor.
+
 ## 6. Що комітиться в Git і що треба відтворити локально
 
 Мапа для перевіряючого: ліва гілка — все, що приходить з клоном репо і достатньо для ревʼю; права гілка — локальні артефакти, які перевіряючому треба згенерувати самостійно (і як саме). Відповідає фактичному стану `git ls-files` + `git check-ignore` проти кореневого `.gitignore`.
@@ -202,11 +204,12 @@ flowchart TD
     Git --> Docs["Документація<br/>README.md, SUBMISSION_NOTES.md,<br/>uml_diagrams/MULTI_AGENT_MERMAID.md"]
     Git --> Deps["requirements.txt"]
     Git --> DataPdfs["data/*.pdf<br/>вхідні PDF для RAG"]
+    Git --> SampleReports["tracked output/*.md<br/>4 reviewer sample reports"]
 
     NotGit["Не комітиться"] --> Env[".env / .env.*<br/>API keys, MODEL_NAME, REQUEST_TIMEOUT"]
     NotGit --> QdrantVolume["Docker volume qdrant_storage<br/>вектори Qdrant (живе поза repo)"]
     NotGit --> LocalIndex["homework-lesson-8/index/<br/>chunks.json, manifest.json<br/>правило: homework-lesson-*/index/"]
-    NotGit --> OutputDir["homework-lesson-8/output/*.md<br/>згенеровані звіти<br/>правило: homework-lesson-*/output/"]
+    NotGit --> OutputDir["нові homework-lesson-8/output/*.md<br/>локальні згенеровані звіти<br/>правило: homework-lesson-*/output/"]
     NotGit --> Resources["homework-lesson-8/resources/<br/>лекційний notebook, посилання<br/>правило: resources"]
     NotGit --> Cache["__pycache__/ + HF/transformers cache<br/>(cross-encoder)"]
     NotGit --> Venv[".venv/"]
