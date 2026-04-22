@@ -37,6 +37,7 @@ uv run python main.py
 ```
 
 Детальні команди перевірки описані в `SUBMISSION_NOTES.md`.
+Архітектурні Mermaid-діаграми — у `uml_diagrams/MULTI_AGENT_MERMAID.md`.
 
 ---
 
