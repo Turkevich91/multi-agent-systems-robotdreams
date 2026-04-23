@@ -3,7 +3,9 @@ name = "robot-dreams-multi-agent-systems"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    "acp-sdk==1.0.3",
     "ddgs>=7.0",
+    "fastmcp==3.2.0",
     "httpx>=0.28.1",
     "ipykernel>=7.2.0",
     "langchain>=1.2.0",
@@ -23,4 +25,5 @@ dependencies = [
     "rank-bm25>=0.2.2",
     "sentence-transformers>=5.4.1",
     "trafilatura>=2.0.0",
+    "uvicorn==0.35.0",
 ]
