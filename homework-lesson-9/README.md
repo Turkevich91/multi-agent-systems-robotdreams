@@ -1,179 +1,154 @@
-# Домашнє завдання: MCP + ACP для мультиагентної системи (розширення hw8)
+# Домашнє завдання 9: MCP + ACP для мультиагентної RAG-системи
 
-Візьміть мультиагентну систему з `homework-lesson-8` (Supervisor + Planner, Researcher, Critic) і переведіть на архітектуру з протоколами комунікації:
+ДЗ 9 розширює готову систему з `homework-lesson-8`: той самий цикл `Plan -> Research -> Critique -> Report`, але інструменти і агенти винесені за протокольні межі.
 
-- **MCP** — для інструментів (tools) кожного агента
-- **ACP** — для самих агентів (agent-to-agent комунікація)
-- **Supervisor** залишається локальним оркестратором, який викликає агентів через ACP
+- **MCP**: інструменти і read-only resources.
+- **ACP**: agent-to-agent delegation.
+- **Supervisor**: локальний LangChain agent, який оркеструє ACP agents і захищає запис через HITL.
 
----
+## Reviewer quick pass
 
-### Що змінюється порівняно з homework-8
+Якщо перевіряючий не хоче запускати LM Studio, Docker/Qdrant і три сервери, основний evidence map зібрано тут:
 
-| Було (homework-lesson-8) | Стає (homework-lesson-9) |
-|-|-|
-| Tools як Python-функції в одному процесі | Tools виставлені як MCP сервери (FastMCP) |
-| Суб-агенти як `@tool`-обгортки для Supervisor | Суб-агенти доступні через ACP сервер (`acp-sdk`) |
-| Все працює в одному процесі | Кожен MCP/ACP сервер — окремий HTTP endpoint |
-| Прямий виклик функцій | Discovery → Delegate → Collect через протоколи |
+- `SUBMISSION_NOTES.md` — коротка карта вимог, команди запуску, acceptance checklist і trace реального прогону.
+- `uml_diagrams/MCP_ACP_MERMAID.md` — архітектура MCP/ACP, sequence flow, HITL і startup map.
+- `supervisor.py` — локальний Supervisor з tools `delegate_to_planner`, `delegate_to_researcher`, `delegate_to_critic`, `save_report`.
+- `acp_server.py` — один ACP server з агентами `planner`, `researcher`, `critic`.
+- `mcp_servers/` — два MCP servers: `SearchMCP` і `ReportMCP`.
 
----
+Після реальних прогонів у `output/` залишено малий reviewer artifact set: trace summary, основний RAG comparison report і два додаткові research-звіти, які демонструють web-first/current-news сценарії.
 
-### Архітектура
+Файли для швидкого перегляду: `output/hw9_protocol_trace_summary.md`, `output/hw9_rag_comparison_report.md`, `output/dinosaurs_among_us_report.md`, `output/ai_model_claims_report.md`.
 
-```
-User (REPL)
-  │
-  ▼
-Supervisor Agent (локальний, create_agent)
-  │
-  ├── delegate_to_planner(request)      ──► ACP ──► Planner Agent  ──► MCP ──► SearchMCP
-  │                                                                             (web_search,
-  │                                                                              knowledge_search)
-  │
-  ├── delegate_to_researcher(plan)      ──► ACP ──► Research Agent ──► MCP ──► SearchMCP
-  │                                                                             (web_search,
-  │                                                                              read_url,
-  │                                                                              knowledge_search)
-  │
-  ├── delegate_to_critic(findings)      ──► ACP ──► Critic Agent   ──► MCP ──► SearchMCP
-  │       │
-  │       ├── verdict: "APPROVE" → go to save_report
-  │       └── verdict: "REVISE"  → back to researcher with feedback
-  │
-  └── save_report(...)                  ──► MCP ──► ReportMCP
-                                                     (save_report — HITL gated)
+## Архітектура
+
+```text
+User (main.py REPL)
+  |
+  v
+Local Supervisor Agent
+  |
+  +-- delegate_to_planner(...)    -> ACP 8903 -> Planner Agent    -> MCP 8901 SearchMCP
+  +-- delegate_to_researcher(...) -> ACP 8903 -> Research Agent   -> MCP 8901 SearchMCP
+  +-- delegate_to_critic(...)     -> ACP 8903 -> Critic Agent     -> MCP 8901 SearchMCP
+  |
+  +-- save_report(...)            -> HITL -> MCP 8902 ReportMCP -> output/*.md
 ```
 
----
+## Endpoints
 
-### Що потрібно реалізувати
+| Endpoint | Port | Role |
+|---|---:|---|
+| `SearchMCP` | `8901` | `web_search`, `read_url`, `knowledge_search`, `resource://knowledge-base-stats` |
+| `ReportMCP` | `8902` | `save_report`, `resource://output-dir` |
+| `ACP server` | `8903` | `planner`, `researcher`, `critic` |
 
-#### 1. MCP Servers (інструменти)
+## Environment
 
-Створіть MCP сервери для кожного набору інструментів:
+Використовується root `.env` з курсу. Chat model іде в LM Studio, embeddings — в OpenAI-compatible embeddings endpoint:
 
-| MCP Server | Порт | Tools | Resources |
-|:---|:---:|:---|:---|
-| **SearchMCP** | 8901 | `web_search`, `read_url`, `knowledge_search` | `resource://knowledge-base-stats` — кількість документів, дата останнього оновлення |
-| **ReportMCP** | 8902 | `save_report` | `resource://output-dir` — шлях до директорії та список збережених звітів |
-
-> SearchMCP використовується трьома агентами одночасно — кожен підключається до одного й того ж серверу.
-
-Кожен tool повторює логіку з homework-8 (або homework-5), але тепер обгорнутий як MCP tool через FastMCP. Використовуйте документацію FastMCP та приклади з лекції 9.
-
-#### 2. ACP Server (агенти)
-
-Створіть **один ACP сервер** (порт 8903) з трьома агентами. Кожен агент:
-
-1. Підключається до SearchMCP через `fastmcp.Client`
-2. Конвертує MCP tools у LangChain format (`mcp_tools_to_langchain` з лекції 9)
-3. Створений через `create_agent` з system prompt з homework-8
-4. Повертає `Message(role="agent", ...)`
-
-Planner і Critic використовують `response_format` для структурованого виводу (як у homework-8).
-
-#### 3. Supervisor (оркестратор)
-
-Supervisor **НЕ** є ACP-агентом. Він — локальний `create_agent`, інструменти якого — обгортки над ACP-викликами через `acp_sdk.client.Client`.
-
-`save_report` — окремий MCP-tool (через ReportMCP), захищений HITL як у homework-8.
-
-#### 4. HITL на save_report
-
-Так само як у homework-8 — `HumanInTheLoopMiddleware` на Supervisor.
-
----
-
-### Структура проєкту
-
+```env
+OPENAI_BASE_URL=http://127.0.0.1:1234/v1
+MODEL_NAME=google/gemma-4-26b-a4b
+TEMPERATURE=0.2
+REQUEST_TIMEOUT=120
+MAX_RETRIES=1
 ```
+
+Якщо `OPENAI_BASE_URL` локальний, `config.py` автоматично використовує `https://api.openai.com/v1` для embeddings, якщо не задано `OPENAI_EMBEDDING_BASE_URL`.
+
+## Запуск
+
+### 1. Qdrant
+
+```powershell
+docker start qdrant
+
+# або після чистої Windows:
+docker run -d --name qdrant `
+  -p 6333:6333 `
+  -p 6334:6334 `
+  -v qdrant_storage:/qdrant/storage `
+  qdrant/qdrant:latest
+```
+
+### 2. Ingestion
+
+```powershell
+cd C:\Users\vetal\PycharmProjects\multi-agent-systems-robotdreams\homework-lesson-9
+uv run python ingest.py
+```
+
+Очікувана collection: `homework_lesson_9_knowledge`.
+
+### 3. MCP + ACP servers
+
+Окремими терміналами:
+
+```powershell
+uv run python mcp_servers/search_mcp.py
+uv run python mcp_servers/report_mcp.py
+uv run python acp_server.py
+```
+
+Або helper:
+
+```powershell
+.\scripts\start_hw9_servers.ps1
+```
+
+### 4. Supervisor REPL
+
+```powershell
+uv run python main.py
+```
+
+Приклад запиту:
+
+```text
+Compare naive RAG, sentence-window retrieval, and parent-child retrieval. Write a report.
+```
+
+## HITL
+
+`save_report` — це локальний Supervisor tool, захищений `HumanInTheLoopMiddleware`. Сам запис після approve виконується через `ReportMCP`.
+
+Підтримуються три дії:
+
+- `approve` — виконати `save_report` через ReportMCP.
+- `edit` — передати feedback Supervisor, переробити звіт і знову викликати `save_report`.
+- `reject` — скасувати збереження.
+
+Direct fallback-save не переноситься як основний workflow. Якщо локальна модель забула викликати `save_report`, `main.py` робить тільки reminder/retry через Supervisor, щоб canonical path лишався HITL + ReportMCP.
+
+## Static Checks
+
+```powershell
+uv run python -m compileall .
+uv run python -c "import fastmcp, acp_sdk; from schemas import ResearchPlan, CritiqueResult; print('ok')"
+```
+
+## Project Structure
+
+```text
 homework-lesson-9/
-├── main.py              # REPL with HITL interrupt/resume loop
-├── supervisor.py        # Supervisor agent + ACP delegation tools
-├── acp_server.py        # ACP server with 3 agents (planner, researcher, critic)
+├── main.py
+├── supervisor.py
+├── acp_server.py
 ├── mcp_servers/
-│   ├── search_mcp.py    # SearchMCP: web_search, read_url, knowledge_search
-│   └── report_mcp.py    # ReportMCP: save_report
+│   ├── search_mcp.py
+│   └── report_mcp.py
 ├── agents/
-│   ├── __init__.py
-│   ├── planner.py       # Planner Agent definition (prompt + response_format)
-│   ├── research.py      # Research Agent definition
-│   └── critic.py        # Critic Agent definition
-├── schemas.py           # Pydantic models: ResearchPlan, CritiqueResult
-├── mcp_utils.py         # mcp_tools_to_langchain helper (from lesson 9)
-├── config.py            # Prompts + settings + ports
-├── retriever.py         # Reused from hw5/hw8
-├── ingest.py            # Reused from hw5/hw8
-├── requirements.txt
-├── data/                # Documents for RAG
-└── .env                 # API keys (do not commit!)
-```
-
----
-
-### Порядок запуску
-
-```bash
-# 1. Ingest documents for RAG (same as hw5/hw8)
-python ingest.py
-
-# 2. Start MCP servers (in separate terminals or as background processes)
-python mcp_servers/search_mcp.py   # port 8901
-python mcp_servers/report_mcp.py   # port 8902
-
-# 3. Start ACP server
-python acp_server.py               # port 8903
-
-# 4. Run supervisor REPL
-python main.py
-```
-
----
-
-### Вимоги
-
-- [ ] 2 MCP сервери (SearchMCP, ReportMCP) з tools та resources
-- [ ] 1 ACP сервер з 3 агентами (planner, researcher, critic)
-- [ ] Кожен ACP агент підключається до SearchMCP через `fastmcp.Client`
-- [ ] Кожен ACP агент створений через `create_agent`
-- [ ] Supervisor оркеструє агентів через `acp_sdk.client.Client`
-- [ ] Ітеративний цикл Plan → Research → Critique працює через ACP
-- [ ] HITL на `save_report` через `HumanInTheLoopMiddleware`
-- [ ] `save_report` працює через ReportMCP
-
----
-
-### Очікуваний результат
-
-Така сама поведінка як у homework-8 (Plan → Research → Critique → HITL → Save), але вся комунікація йде через протоколи:
-
-```
-You: Compare RAG approaches: naive, sentence-window, and parent-child
-
-[Supervisor → ACP → Planner]
-  Planner connects to SearchMCP (MCP) for preliminary search
-  Returns: ResearchPlan(goal="...", search_queries=[...], ...)
-
-[Supervisor → ACP → Researcher]  (round 1)
-  Researcher connects to SearchMCP (MCP)
-  🔧 web_search("naive RAG approach") via MCP
-  🔧 knowledge_search("RAG retrieval") via MCP
-  Returns findings
-
-[Supervisor → ACP → Critic]
-  Critic connects to SearchMCP (MCP) for fact-checking
-  🔧 web_search("RAG benchmarks 2026") via MCP
-  Returns: CritiqueResult(verdict="REVISE", gaps=["outdated benchmarks", ...])
-
-[Supervisor → ACP → Researcher]  (round 2)
-  Researcher re-searches with Critic's feedback via MCP
-
-[Supervisor → ACP → Critic]
-  Returns: CritiqueResult(verdict="APPROVE")
-
-[Supervisor → MCP → save_report]
-  ⏸️  ACTION REQUIRES APPROVAL
-  👉 approve / edit / reject: approve
-  ✅ Report saved to output/rag_comparison.md
+│   ├── planner.py
+│   ├── research.py
+│   └── critic.py
+├── shared_tools.py
+├── mcp_utils.py
+├── config.py
+├── schemas.py
+├── retriever.py
+├── ingest.py
+├── scripts/start_hw9_servers.ps1
+├── SUBMISSION_NOTES.md
+└── uml_diagrams/MCP_ACP_MERMAID.md
 ```
