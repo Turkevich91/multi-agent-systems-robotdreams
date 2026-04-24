@@ -1,228 +1,137 @@
-# Домашнє завдання: тестування мультиагентної системи (розширення hw8)
+# Homework Lesson 10: Evaluating a Multi-Agent RAG System
 
-Напишіть автоматизовані тести для вашої мультиагентної системи з `homework-lesson-8`, використовуючи DeepEval та підходи з Лекції 10.
+Це ДЗ додає автоматизований evaluation layer до системи з `homework-lesson-8`.
+Архітектура агентів не переписувалась: Supervisor як і раніше координує `Planner -> Researcher -> Critic -> save_report`, а урок 10 перевіряє якість цієї системи через DeepEval, golden dataset і LLM-as-a-Judge.
 
----
+## Що реалізовано
 
-### Що змінюється порівняно з homework-8
+| Вимога | Реалізація |
+|---|---|
+| Golden Dataset 15-20 прикладів | `tests/golden_dataset.json`: 15 прикладів, по 5 happy path, edge case і failure case |
+| Component tests | `test_planner.py`, `test_researcher.py`, `test_critic.py` |
+| Tool correctness | `test_tools.py`: Planner, Researcher, Supervisor/save_report |
+| End-to-end evaluation | `test_e2e.py`: повний golden baseline з Answer Relevancy/Failure Safety + Correctness |
+| Custom metric | `Homework Agent Policy Fit` у `test_e2e.py` |
+| Thresholds | 0.7 для relevancy/plan/groundedness/critique, 0.6 для correctness/business baseline |
+| Запуск через DeepEval | `uv run deepeval test run tests/` |
 
-| Було (homework-lesson-8) | Стає (homework-lesson-10)                    |
-|-|----------------------------------------------|
-| Мультиагентна система без тестів | Та сама система + покриття тестами           |
-| Якість перевіряється вручну (vibe check) | Автоматизовані evals з метриками 0–1         |
-| Немає golden dataset | 10–15 golden examples для regression testing |
-| Немає CI-ready тестів | `deepeval test run` запускає всі тести       |
+## Модельна схема
 
----
+- Target system: локальна LM Studio модель з кореневого `.env` (`MODEL_NAME`, `OPENAI_BASE_URL`).
+- Judge model: `EVAL_MODEL=gpt-5.4-mini`.
+- DeepEval judge має ходити в official OpenAI API, тому `tests/conftest.py` тимчасово відновлює `OPENAI_BASE_URL=https://api.openai.com/v1`, якщо кореневий `.env` вказує на LM Studio.
+- `OPENAI_API_KEY` потрібен тільки для judge-метрик DeepEval.
 
-### Що потрібно реалізувати
+## Структура
 
-#### 1. Golden Dataset (10–15 прикладів)
-
-Створіть golden dataset для тестування вашої системи. Кожен приклад — це пара `input` → `expected_output` з категорією:
-
-| Категорія | Кількість | Приклади |
-|---|-----------|---|
-| **Happy path** | 3–5       | Типові дослідницькі запити, на які система має дати повну відповідь |
-| **Edge cases** | 3–5       | Неоднозначні запити, дуже вузькі або дуже широкі теми, запити кількома мовами |
-| **Failure cases** | 3–5       | Запити поза доменом, безглузді запити, запити на заборонені теми |
-
-Збережіть як `tests/golden_dataset.json`:
-
-```json
-[
-  {
-    "input": "Compare naive RAG vs sentence-window retrieval",
-    "expected_output": "Naive RAG splits documents into fixed-size chunks...",
-    "category": "happy_path"
-  }
-]
-```
-
-Можна використати Ragas `TestsetGenerator` для початкової генерації, але **обов'язково зробіть manual review** — виправте або видаліть неякісні приклади.
-
-#### 2. Тести компонентів (component-level)
-
-Протестуйте кожного суб-агента окремо.
-
-**Planner Agent — структурованість плану:**
-
-```python
-from deepeval.metrics import GEval
-from deepeval.test_case import LLMTestCase, LLMTestCaseParams
-
-plan_quality = GEval(
-    name="Plan Quality",
-    evaluation_steps=[
-        "Check that the plan contains specific search queries (not vague)",
-        "Check that sources_to_check includes relevant sources for the topic",
-        "Check that the output_format matches what the user asked for",
-    ],
-    evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT],
-    model="gpt-5.4-mini",
-    threshold=0.7,
-)
-```
-
-**Critic Agent — якість критики:**
-
-```python
-critique_quality = GEval(
-    name="Critique Quality",
-    evaluation_steps=[
-        "Check that the critique identifies specific issues, not vague complaints",
-        "Check that revision_requests are actionable (researcher can act on them)",
-        "If verdict is APPROVE, gaps list should be empty or contain only minor items",
-        "If verdict is REVISE, there must be at least one revision_request",
-    ],
-    evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT],
-    model="gpt-5.4-mini",
-    threshold=0.7,
-)
-```
-
-**Research Agent — groundedness відповіді:**
-
-```python
-groundedness = GEval(
-    name="Groundedness",
-    evaluation_steps=[
-        "Extract every factual claim from 'actual output'",
-        "For each claim, check if it can be directly supported by 'retrieval context'",
-        "Claims not present in retrieval context count as ungrounded, even if true",
-        "Score = number of grounded claims / total claims",
-    ],
-    evaluation_params=[
-        LLMTestCaseParams.ACTUAL_OUTPUT,
-        LLMTestCaseParams.RETRIEVAL_CONTEXT,
-    ],
-    model="gpt-5.4-mini",
-    threshold=0.7,
-)
-```
-
-#### 3. Тести Tool Correctness
-
-Перевірте, що агенти викликають правильні інструменти:
-
-```python
-from deepeval.test_case import LLMTestCase, ToolCall
-from deepeval.metrics import ToolCorrectnessMetric
-
-# Planner should use web_search and/or knowledge_search for exploration
-# Researcher should use web_search, read_url, knowledge_search
-# Critic should verify facts via web_search
-
-tool_metric = ToolCorrectnessMetric(threshold=0.5, model="gpt-5.4-mini")
-```
-
-Створіть мінімум 3 тест-кейси для tool correctness:
-- Planner отримує запит → має викликати пошукові інструменти
-- Researcher отримує план → має використати інструменти згідно з `sources_to_check`
-- Supervisor отримує APPROVE від Critic → має викликати `save_report`
-
-#### 4. End-to-end тест
-
-Протестуйте повний pipeline Supervisor → Planner → Researcher → Critic:
-
-```python
-answer_relevancy = AnswerRelevancyMetric(threshold=0.7, model="gpt-5.4-mini")
-
-correctness = GEval(
-    name="Correctness",
-    evaluation_steps=[
-        "Check whether the facts in 'actual output' contradict 'expected output'",
-        "Penalize omission of critical details",
-        "Different wording of the same concept is acceptable",
-    ],
-    evaluation_params=[
-        LLMTestCaseParams.INPUT,
-        LLMTestCaseParams.ACTUAL_OUTPUT,
-        LLMTestCaseParams.EXPECTED_OUTPUT,
-    ],
-    model="gpt-5.4-mini",
-    threshold=0.6,
-)
-```
-
-Запустіть evaluation на повному golden dataset і збережіть результати.
-
-### Структура проєкту
-
-```
+```text
 homework-lesson-10/
+├── agents/                      # Planner, Researcher, Critic з hw8
+├── data/                        # PDF corpus для RAG ingestion
 ├── tests/
-│   ├── golden_dataset.json       # 15-20 golden examples
-│   ├── test_planner.py           # Planner agent tests
-│   ├── test_researcher.py        # Research agent tests (groundedness)
-│   ├── test_critic.py            # Critic agent tests
-│   ├── test_tools.py             # Tool correctness tests
-│   └── test_e2e.py               # End-to-end evaluation on golden dataset
-├── ... (all files from homework-lesson-8)
+│   ├── golden_dataset.json
+│   ├── baseline_outputs.json
+│   ├── conftest.py
+│   ├── eval_config.py
+│   ├── test_planner.py
+│   ├── test_researcher.py
+│   ├── test_critic.py
+│   ├── test_tools.py
+│   └── test_e2e.py
+├── reviewer_artifacts/
+│   └── hw10_baseline_eval_summary.md
+├── uml_diagrams/
+│   └── HW10_EVAL_MERMAID.md
+├── config.py
+├── ingest.py
+├── main.py
+├── retriever.py
+├── schemas.py
+├── supervisor.py
+├── tools.py
+├── SUBMISSION_NOTES.md
 └── README.md
 ```
 
----
+## Як запустити
 
-### Як запустити тести
+З кореня репозиторію:
 
-```bash
-# Run all tests
-deepeval test run tests/
-
-# Run specific test file
-deepeval test run tests/test_planner.py
-
-# Run with verbose output
-deepeval test run tests/ -v
+```powershell
+cd C:\Users\vetal\PycharmProjects\multi-agent-systems-robotdreams\homework-lesson-10
+uv run python -m compileall .
+uv run deepeval test run tests/
 ```
 
----
+Лише deterministic/tool smoke test без OpenAI judge:
 
-### Вимоги
-
-1. **Golden Dataset:** 15–20 прикладів (happy path + edge cases + failure cases), збережений як JSON
-2. **Component tests:** мінімум по одному тесту на Planner, Researcher, Critic
-3. **Tool correctness:** мінімум 3 тест-кейси
-4. **End-to-end:** evaluation на повному golden dataset з мінімум 2 метриками
-5. **Custom metric:** мінімум 1 GEval метрика під вашу бізнес-логіку
-6. **Thresholds:** обґрунтовані пороги (не 0.95 з першого дня — встановіть baseline, потім підвищуйте)
-7. **Тести запускаються:** `deepeval test run tests/` проходить без помилок
-
----
-
-### Очікуваний результат
-
-```
-$ deepeval test run tests/
-
-Running 5 test files...
-
-tests/test_planner.py
-  ✅ test_plan_quality (Plan Quality: 0.85, threshold: 0.7)
-  ✅ test_plan_has_queries (Plan Quality: 0.90, threshold: 0.7)
-
-tests/test_researcher.py
-  ✅ test_research_grounded (Groundedness: 0.78, threshold: 0.7)
-  ❌ test_research_edge_case (Groundedness: 0.45, threshold: 0.7)
-
-tests/test_critic.py
-  ✅ test_critique_approve (Critique Quality: 0.92, threshold: 0.7)
-  ✅ test_critique_revise (Critique Quality: 0.88, threshold: 0.7)
-
-tests/test_tools.py
-  ✅ test_planner_tools (Tool Correctness: 1.0, threshold: 0.5)
-  ✅ test_researcher_tools (Tool Correctness: 1.0, threshold: 0.5)
-  ✅ test_supervisor_save (Tool Correctness: 1.0, threshold: 0.5)
-
-tests/test_e2e.py
-  ✅ test_golden_dataset [15/20 passed]
-     Correctness: avg 0.74, min 0.42, max 0.95
-     Answer Relevancy: avg 0.81, min 0.55, max 0.98
-     Citation Presence: avg 0.70, min 0.30, max 1.00
-
-======================================================
-Overall: 19/20 passed (95.0% pass rate)
+```powershell
+cd C:\Users\vetal\PycharmProjects\multi-agent-systems-robotdreams\homework-lesson-10
+uv run deepeval test run tests/test_tools.py
 ```
 
-> Деякі тести можуть fail — це нормально. Мета не 100% pass rate, а мати **baseline** для подальших покращень. Зафіксуйте поточні scores і поступово покращуйте систему.
+Для live RAG/system прогонів потрібен той самий bootstrap, що у HW8:
+
+```powershell
+docker start qdrant
+uv run python ingest.py
+uv run python main.py
+```
+
+Урок 10 насамперед перевіряє evaluation harness. Тому `baseline_outputs.json` лежить у репозиторії як reviewed baseline: перевіряючий може побачити, що саме оцінюється, навіть без LM Studio, Qdrant і live запуску агентів.
+
+## Thresholds
+
+| Metric | Threshold | Чому так |
+|---|---:|---|
+| Plan Quality | 0.7 | План має бути конкретним, але локальна модель може формулювати неідеально |
+| Research Groundedness | 0.7 | Факти мають спиратися на retrieval context |
+| Critique Quality | 0.7 | Critic має давати actionable оцінку |
+| Answer Relevancy | 0.7 | Відповідь має відповідати input; застосовується до happy/edge cases |
+| Correctness | 0.6 | Baseline-рівень для недетермінованої системи, без завищення до 0.95 |
+| Failure Case Safety | 0.7 | Для refusal cases Answer Relevancy може карати безпечну відмову, тому потрібна safety-aware метрика |
+| Homework Agent Policy Fit | 0.6 | Custom metric перевіряє бізнес-логіку: RAG/web вибір, HITL, чесність джерел |
+
+## Перевірений smoke result
+
+```text
+uv run python -m compileall homework-lesson-10
+OK
+
+cd homework-lesson-10
+uv run deepeval test run tests/test_tools.py
+3 passed
+Pass Rate: 100.0%
+
+uv run deepeval test run tests/test_planner.py
+2 passed, Plan Quality: 0.8
+
+uv run deepeval test run tests/test_researcher.py
+1 passed, Research Groundedness: 1.0
+
+uv run deepeval test run tests/test_critic.py
+2 passed, Critique Quality: 0.9
+
+uv run pytest tests/test_e2e.py::test_custom_business_logic_metric_on_policy_case -q
+1 passed
+
+uv run deepeval test run tests/test_e2e.py
+16 passed, 0 failed, Pass Rate: 100.0%
+Answer Relevancy: 10/10 passed, avg 0.989
+Correctness: 15/15 passed, avg 0.953
+Failure Case Safety: 5/5 passed, avg 1.000
+Homework Agent Policy Fit: 1/1 passed, avg 1.000
+
+uv run deepeval test run tests/
+22 passed, 0 failed, Pass Rate: 100.0%
+Plan Quality: 1/1 passed, avg 0.800
+Research Groundedness: 1/1 passed, avg 1.000
+Critique Quality: 1/1 passed, avg 0.900
+Tool Correctness: 3/3 passed, avg 1.000
+Answer Relevancy: 10/10 passed, avg 1.000
+Correctness: 15/15 passed, avg 0.953
+Failure Case Safety: 5/5 passed, avg 1.000
+Homework Agent Policy Fit: 1/1 passed, avg 1.000
+```
+
+Під час першого повного E2E-прогону `AnswerRelevancyMetric` показав обмеження на malicious/refusal case: безпечна відмова на запит про викрадення `.env` ключів отримала низьку relevancy, бо не виконувала шкідливий intent. Після цього failure cases переведені на `Correctness + Failure Case Safety`, що краще відповідає підходу з лекції: метрика має відповідати типу поведінки, яку ми хочемо винагороджувати. Повторний повний E2E після цієї правки пройшов 16/16, а весь каталог `tests/` пройшов 22/22.
