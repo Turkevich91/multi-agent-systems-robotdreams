@@ -1,113 +1,135 @@
-# Домашнє завдання: Langfuse observability
+# Домашнє завдання 12: Langfuse Observability
 
-Підключіть Langfuse до вашої мультиагентної системи з останньої домашньої роботи, налаштуйте tracing та online evaluation через LLM-as-a-Judge.
+У цій роботі мультиагентну RAG систему з уроку 10 розширено Langfuse tracing, session/user tracking, Prompt Management та online оцінюванням через LLM-as-a-Judge.
 
----
+Runtime stack навмисно залишений близьким до попередніх ДЗ:
 
-### Що змінюється порівняно з попередніми homework
+- chat model: LM Studio через `OPENAI_BASE_URL`
+- embeddings: OpenAI-compatible embeddings endpoint з root `.env`
+- vector store: локальна Qdrant collection `homework_lesson_12_knowledge`
+- workflow: `Supervisor -> Planner -> Researcher -> Critic -> save_report`
+- observability: Langfuse Cloud project через `LANGFUSE_*` env vars
 
-| Було | Стає |
+Оригінальне формулювання завдання збережене в `ASSIGNMENT.md`.
+
+## Покриття Вимог
+
+| Вимога | Реалізація |
 |---|---|
-| Немає observability — система працює як чорна скринька | Кожен запуск трейситься в Langfuse з повним деревом викликів |
-| DeepEval тести запускаються локально вручну (hw10) | Langfuse автоматично оцінює нові трейси через LLM-as-a-Judge |
-| Промпти захардкоджені в коді | Усі system prompts агентів винесено в Langfuse Prompt Management |
+| Trace кожного MAS запуску | `observability.py` обгортає кожен user request у Langfuse trace і передає `CallbackHandler` у LangChain/LangGraph runtime config. |
+| Повне дерево agent/tool викликів | Supervisor tool calls та вкладені sub-agent invocations отримують той самий Langfuse callback config. |
+| Session/user tracking | `LANGFUSE_SESSION_ID`, `LANGFUSE_USER_ID` та tags прокидаються через `propagate_attributes`. |
+| Prompt Management | Agent system prompts завантажуються з Langfuse через `prompt_registry.py`; у Python файлах немає hardcoded system prompts. |
+| LLM-as-a-Judge | Налаштування evaluators задокументоване в `reviewer_artifacts/hw12_langfuse_evaluator_setup.md`. |
+| Screenshots | `screenshots/README.md` описує чотири обов'язкові evidence screenshots. |
 
----
+## Налаштування
 
-### Що потрібно зробити
+З root репозиторію:
 
-#### 0. Налаштування Langfuse Cloud
-
-1. Зареєструйтесь на [us.cloud.langfuse.com](https://us.cloud.langfuse.com) (free tier, без credit card)
-2. Створіть Organization → Project (наприклад, `homework-12`)
-3. **Settings → API Keys → + Create new API keys** — скопіюйте `Public Key` (`pk-lf-...`) та `Secret Key` (`sk-lf-...`)
-4. Збережіть ключі у `.env` файл:
-
+```powershell
+cd C:\Users\vetal\PycharmProjects\multi-agent-systems-robotdreams
+uv sync
 ```
-LANGFUSE_PUBLIC_KEY=pk-lf-...
-LANGFUSE_SECRET_KEY=sk-lf-...
+
+Root `.env` має містити:
+
+```env
+OPENAI_API_KEY=...
+OPENAI_BASE_URL=http://127.0.0.1:1234/v1
+MODEL_NAME=google/gemma-4-26b-a4b
+
+OPENAI_EMBEDDING_API_KEY=...
+OPENAI_EMBEDDING_BASE_URL=https://api.openai.com/v1
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+
+LANGFUSE_PUBLIC_KEY=<your-langfuse-public-key>
+LANGFUSE_SECRET_KEY=<your-langfuse-secret-key>
 LANGFUSE_BASE_URL=https://us.cloud.langfuse.com
 ```
 
----
+## Bootstrap Prompts У Langfuse
 
-#### 1. Підключення tracing до мультиагентної системи
+Тексти system prompts лежать у `langfuse_prompts.json` як seed artifact. Команда нижче завантажує їх у Langfuse Prompt Management:
 
-Інтегруйте Langfuse так, щоб **кожен запуск вашої MAS** створював **trace** у Langfuse з повним деревом (усі LLM-виклики, tool calls, суб-агенти — вкладені під один батьківський trace).
+```powershell
+cd C:\Users\vetal\PycharmProjects\multi-agent-systems-robotdreams\homework-lesson-12
+uv run python bootstrap_langfuse.py
+```
 
-Зверніть увагу на:
-- `@observe` декоратор та `CallbackHandler` для LangChain/LangGraph — див. [документацію інтеграції](https://langfuse.com/docs/integrations/langchain)
-- `propagate_attributes` для прокидання `session_id`, `user_id`, `tags` на весь trace
+Після bootstrap у Langfuse UI з'являються prompts з label `production`:
 
-**Критерій:** зробіть 3-5 запусків з різними запитами. У Langfuse UI → **Tracing → Traces** має бути 3-5 рядків, кожен розгортається у повне дерево з суб-агентами та tool calls.
+- `hw12_supervisor_system`
+- `hw12_planner_system`
+- `hw12_planner_fallback_system`
+- `hw12_researcher_system`
+- `hw12_critic_system`
+- `hw12_critic_fallback_system`
 
----
+## Побудова RAG Index
 
-#### 2. Session та User tracking
+Qdrant має бути запущений локально, як у попередніх домашніх роботах.
 
-Переконайтесь, що ваші traces згруповані у **session** і мають `user_id`:
+```powershell
+cd C:\Users\vetal\PycharmProjects\multi-agent-systems-robotdreams\homework-lesson-12
+uv run python ingest.py
+```
 
-- Після 3-5 запусків перевірте Langfuse UI:
-  - **Sessions** tab — має з'явитися ваша сесія з кількома трейсами всередині
-  - **Users** tab — має з'явитися ваш user
+Опційна перевірка collection:
 
----
+```powershell
+uv run python -c "from qdrant_client import QdrantClient; from config import settings; c=QdrantClient(url=settings.qdrant_url); print(c.count(collection_name=settings.qdrant_collection, exact=True).count)"
+```
 
-#### 3. Prompt Management
+## Запуск MAS З Langfuse Tracing
 
-Винесіть **усі system prompts ваших агентів** з коду в Langfuse Prompt Management. Після цього жоден промпт не повинен бути захардкоджений у Python-файлах — код лише завантажує промпти з Langfuse за іменем та label.
+```powershell
+cd C:\Users\vetal\PycharmProjects\multi-agent-systems-robotdreams\homework-lesson-12
+uv run python main.py
+```
 
-##### 3.1. Створіть промпти у Langfuse UI
+Приклади запитів, використаних для прогонів:
 
-Для кожного агента у вашій системі:
+```text
+Compare naive RAG, sentence-window retrieval, and parent-child retrieval. Write a report.
+```
 
-1. **Prompts → + New prompt**
-2. Задайте ім'я, що відповідає ролі агента
-3. Вставте текст промпту. Використовуйте template variables (`{{...}}`) де промпт параметризований
-4. Додайте label `production`
+```text
+Explain how Langfuse tracing helps debug a multi-agent RAG workflow.
+```
 
-##### 3.2. Завантажте промпти з коду
+```text
+When should a research agent use local RAG instead of web search?
+```
 
-Використовуйте `get_prompt(name, label=...)` з Langfuse Python SDK для завантаження промптів, та `.compile(**variables)` для підстановки template variables. Див. [документацію Prompt Management](https://langfuse.com/docs/prompts).
+```text
+Compare prompt caching and semantic caching for multi-agent systems.
+```
 
-**Критерій:**
-- У коді **жодних захардкоджених system prompts** — усі завантажуються з Langfuse
-- У Langfuse UI → **Prompts** — видно промпт для кожного агента
+Після завершення кожного запуску `main.py` друкує Langfuse `trace_id`. У Langfuse UI зручно фільтрувати за tag `homework-12` або session `homework-12-review-session`.
 
----
+## Evaluators
 
-#### 4. LLM-as-a-Judge: online evaluation у Langfuse
+У Langfuse створено два LLM-as-a-Judge evaluators за конфігурацією з:
 
-Налаштуйте **автоматичну оцінку** нових трейсів через Langfuse Evaluators.
+```text
+reviewer_artifacts/hw12_langfuse_evaluator_setup.md
+```
 
-##### 4.1. Створіть evaluator'и у Langfuse UI
+Пара evaluators:
 
-1. Перейдіть: **LLM-as-a-Judge → Evaluators → + Set up evaluator**
-2. Створіть **мінімум 2 evaluator'и** з різними score type (numeric, boolean, або categorical)
-3. Самостійно продумайте, які аспекти якості найважливіші для вашої конкретної системи — наприклад: relevance відповіді, groundedness фактів, повнота дослідження, структурованість output'у, тощо
-4. Напишіть evaluation prompts, використовуючи template variables `{{input}}`, `{{output}}`
+- numeric `hw12_relevance_score`
+- boolean `hw12_groundedness_pass`
 
-Див. [документацію LLM-as-a-Judge](https://langfuse.com/docs/scores/model-based-evals) для доступних score types, template variables та прикладів.
+Після створення evaluators були виконані нові запуски, щоб Langfuse асинхронно проставив scores.
 
-##### 4.2. Запустіть і перевірте
+## Докази
 
-1. Зробіть 3-5 нових запусків вашої системи
-2. Зачекайте 1-2 хвилини — Langfuse виконає evaluation асинхронно
-3. Перевірте результати:
-   - **Tracing → Traces** → відкрийте trace → вкладка **Scores** — має бути автоматично проставлений score від evaluator'а
-   - **LLM-as-a-Judge → Evaluators** → статус evaluator'а показує кількість оброблених трейсів
+Фінальна здача містить:
 
----
-
-### Вимоги
-
-1. **Tracing працює:** кожен запуск MAS → trace з повним деревом суб-агентів і tool calls
-2. **Session/User:** traces згруповані в session, мають user_id
-3. **Prompt Management:** усі system prompts агентів завантажуються з Langfuse (жодних захардкоджених)
-4. **LLM-as-a-Judge:** мінімум 2 evaluator'и налаштовані, автоматично оцінюють нові traces
-5. **Скріншоти:** 4 скріншоти з Langfuse UI (trace tree, session, evaluator scores, prompt management)
-
----
-
-### Що здавати
-- Папка `screenshots/` з 4 скріншотами з Langfuse UI
+- `screenshots/01_trace_tree.png`
+- `screenshots/02_session_grouping.png`
+- `screenshots/03_evaluator_scores.png`
+- `screenshots/04_prompt_management.png`
+- `SUBMISSION_NOTES.md`
+- `uml_diagrams/HW12_LANGFUSE_MERMAID.md`
