@@ -85,11 +85,17 @@ class Settings(BaseSettings):
     api_port: int = Field(default=8012, alias="COURSE_PROJECT_API_PORT")
 
     # Langfuse
-    langfuse_public_key: SecretStr | None = Field(default=None, alias="LANGFUSE_PUBLIC_KEY")
-    langfuse_secret_key: SecretStr | None = Field(default=None, alias="LANGFUSE_SECRET_KEY")
+    langfuse_public_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("CW_LANGFUSE_PUBLIC_KEY", "LANGFUSE_PUBLIC_KEY"),
+    )
+    langfuse_secret_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("CW_LANGFUSE_SECRET_KEY", "LANGFUSE_SECRET_KEY"),
+    )
     langfuse_base_url: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("LANGFUSE_BASE_URL", "LANGFUSE_HOST"),
+        validation_alias=AliasChoices("CW_LANGFUSE_BASE_URL", "LANGFUSE_BASE_URL", "LANGFUSE_HOST"),
     )
     langfuse_prompt_label: str = Field(default="production", alias="LANGFUSE_PROMPT_LABEL")
     langfuse_prompt_cache_ttl_seconds: int = Field(default=60, alias="LANGFUSE_PROMPT_CACHE_TTL_SECONDS")
@@ -161,9 +167,9 @@ def build_chat_model():
 
 def sync_langfuse_environment() -> None:
     if settings.langfuse_public_key:
-        os.environ.setdefault("LANGFUSE_PUBLIC_KEY", settings.langfuse_public_key.get_secret_value())
+        os.environ["LANGFUSE_PUBLIC_KEY"] = settings.langfuse_public_key.get_secret_value()
     if settings.langfuse_secret_key:
-        os.environ.setdefault("LANGFUSE_SECRET_KEY", settings.langfuse_secret_key.get_secret_value())
+        os.environ["LANGFUSE_SECRET_KEY"] = settings.langfuse_secret_key.get_secret_value()
     if settings.langfuse_base_url:
-        os.environ.setdefault("LANGFUSE_BASE_URL", settings.langfuse_base_url)
-        os.environ.setdefault("LANGFUSE_HOST", settings.langfuse_base_url)
+        os.environ["LANGFUSE_BASE_URL"] = settings.langfuse_base_url
+        os.environ["LANGFUSE_HOST"] = settings.langfuse_base_url

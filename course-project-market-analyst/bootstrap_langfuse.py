@@ -11,7 +11,10 @@ PROMPTS_FILE = BASE_DIR / "langfuse_prompts.json"
 def bootstrap_prompts() -> None:
     sync_langfuse_environment()
     if not settings.langfuse_public_key or not settings.langfuse_secret_key:
-        raise SystemExit("LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are required.")
+        raise SystemExit(
+            "CW_LANGFUSE_PUBLIC_KEY/CW_LANGFUSE_SECRET_KEY or "
+            "LANGFUSE_PUBLIC_KEY/LANGFUSE_SECRET_KEY are required."
+        )
 
     from langfuse import get_client
 

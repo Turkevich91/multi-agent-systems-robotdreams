@@ -46,12 +46,14 @@ OPENAI_EMBEDDING_API_KEY=...
 OPENAI_EMBEDDING_BASE_URL=https://api.openai.com/v1
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 
-LANGFUSE_PUBLIC_KEY=...
-LANGFUSE_SECRET_KEY=...
+CW_LANGFUSE_PUBLIC_KEY=...
+CW_LANGFUSE_SECRET_KEY=...
 LANGFUSE_BASE_URL=https://us.cloud.langfuse.com
 
 COURSE_PROJECT_TOOL_BACKEND=mcp_auto
 ```
+
+`CW_LANGFUSE_*` використовується спеціально для course project, щоб не змішувати traces/prompts/evaluators з домашніми роботами. Якщо ці змінні не задані, код fallback-иться на стандартні `LANGFUSE_PUBLIC_KEY` і `LANGFUSE_SECRET_KEY`.
 
 LM Studio можна використати як fallback через env, але фінальний demo path розрахований на OpenAI API для стабільного structured output.
 

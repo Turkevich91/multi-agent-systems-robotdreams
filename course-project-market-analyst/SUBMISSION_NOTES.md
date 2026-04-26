@@ -19,6 +19,7 @@
 | Додати SPA interface | React/Vite dashboard показує prompt, run history, SSE events, HITL criteria form, report і Mermaid rendering | Перевіряючий бачить agent workflow як інтерактивний продукт. |
 | Залишити fallback для перевірки | `main.py` дає CLI demo без frontend | Якщо UI або browser не запускаються, core workflow все одно перевіряється. |
 | Додати observability | `observability.py` інтегрує Langfuse callback metadata, trace/session/user/tags | Runs готові до Langfuse trace tree і evaluator evidence. |
+| Не змішувати Langfuse з ДЗ 12 | Course project читає `CW_LANGFUSE_PUBLIC_KEY` і `CW_LANGFUSE_SECRET_KEY` перед стандартними `LANGFUSE_*` | Traces, prompts і evaluators курсача можна тримати в окремому Langfuse project. |
 
 ## Основні Компоненти
 
