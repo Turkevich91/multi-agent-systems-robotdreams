@@ -17,7 +17,7 @@ Agentic AI developer tooling is moving from autocomplete toward supervised work 
 
 - **Financial Critic:** adoption should distinguish seat licenses, API usage, observability costs and integration time.
 - **Risk Manager:** write actions need human review, rollback paths and measurable pilot boundaries.
-- **Disaster/Resilience Critic:** direct tools, manual workflows and provider fallback are required before relying on agent automation.
+- **AI-Suggested or Custom Critic:** optional extra critic roles can be added for freshness, compliance, procurement, domain fit or market timing.
 
 ## Recommended Roadmap
 
@@ -29,35 +29,74 @@ Agentic AI developer tooling is moving from autocomplete toward supervised work 
 
 ## Mermaid Decision Diagrams
 
-### Architecture Integration Map
-
-```mermaid
-flowchart LR
-    Dev["Developer"] --> IDE["IDE Copilot / AI Editor"]
-    Dev --> Agent["Agentic Coding Tool"]
-    Agent --> RAG["Team Knowledge / RAG"]
-    Agent --> MCP["Read-only MCP Tools"]
-    Agent --> HITL["Human Approval Gates"]
-    Agent --> Obs["Langfuse / Evaluations"]
-    HITL --> Repo["Repository / Delivery Workflow"]
-    Obs --> Lead["Tech Lead Decision Loop"]
-```
-
-### Risk Decision Flow
+### Market Entry Decision Flow
 
 ```mermaid
 flowchart TD
-    Task["AI-assisted task"] --> Sensitive{"Touches secrets, production, or customer data?"}
-    Sensitive -- "yes" --> HITL["Require human approval"]
-    Sensitive -- "no" --> Write{"Writes code or files?"}
-    Write -- "yes" --> Tests["Run tests + review diff"]
-    Write -- "no" --> Auto["Allow read-only automation"]
-    Tests --> Pass{"Passes checks?"}
-    Pass -- "yes" --> MergeReview["Human merge review"]
-    Pass -- "no" --> Revise["Agent revises or stops"]
+    Thesis["Market entry thesis"] --> Beachhead["Beachhead: small development teams"]
+    Beachhead --> Demand{"Demand signal strong enough?"}
+    Demand -- "no" --> Narrow["Narrow positioning or gather more evidence"]
+    Demand -- "yes" --> Offer["Package offer around coding agents + observability"]
+    Offer --> Pilot["Pilot with target buyers"]
+    Pilot --> Expand{"Repeatable value proven?"}
+    Expand -- "yes" --> Adjacent["Expand to adjacent engineering teams"]
+    Expand -- "no" --> Reprice["Rework pricing, scope or channel"]
+```
+
+### Payback Decision Gate
+
+```mermaid
+flowchart LR
+    Spend["Investment: seats, APIs, integration time"] --> Pilot["Measured pilot"]
+    Upside["Main upside: review-time and maintenance savings"] --> Pilot
+    Drag["Main risk: unclear ROI or uncontrolled write actions"] --> Pilot
+    Pilot --> Metrics["Track savings, quality and risk reduction"]
+    Metrics --> Payback{"Payback within target window?"}
+    Payback -- "yes" --> Scale["Scale budget and vendor commitment"]
+    Payback -- "no" --> Adjust["Reduce scope, renegotiate or stop"]
+```
+
+### Market Validation Timeline
+
+```mermaid
+timeline
+    title Market Validation Timeline
+    0 to 30 days : Evidence scan
+                 : Validate target segment
+    31 to 60 days : Pilot package
+                  : Test measurable workflow value
+    61 to 90 days : Payback gate
+                  : Compare cost, demand and risk
+    90 plus days : Scale or pause
+                 : Expand only after measured proof
+```
+
+### Market Saturation Map
+
+```mermaid
+quadrantChart
+    title Market Saturation Map
+    x-axis Low buyer pull --> High buyer pull
+    y-axis Crowded category --> Open whitespace
+    quadrant-1 High-pull whitespace
+    quadrant-2 Low-pull whitespace
+    quadrant-3 Low-pull crowded
+    quadrant-4 High-pull crowded
+    "IDE copilots" : [0.80, 0.30]
+    "Agentic coding tools" : [0.72, 0.58]
+    "Observability/evaluation" : [0.63, 0.72]
+    "Read-only MCP integrations" : [0.50, 0.78]
+```
+
+### Expert Critic Score Share
+
+```mermaid
+pie showData
+    title Expert Critic Score Share
+    "Financial Critic" : 50
+    "Risk Manager" : 50
 ```
 
 ## Sources
 
 Runtime reports include public URLs and local RAG source references gathered during the run.
-

@@ -157,12 +157,13 @@ Analyze the market for agentic AI developer tools for a small AEC/manufacturing 
 Expected flow:
 
 1. Analyst prepares sourced draft.
-2. Critic Role Selector selects expert roles.
+2. Critic Role Selector starts with Financial and Risk roles.
 3. UI shows Human Criteria Gate.
-4. User approves criteria, edits them, or adds an ad-hoc critic role.
+4. User approves criteria, edits them, adds a custom critic, or asks AI to suggest an extra critic.
 5. Expert Critic Panel runs role-specific critique.
-6. Aggregator decides approve/revise.
-7. Compiler saves final report and Mermaid diagrams.
+6. Backend persists the approved critic roles for the current run/session.
+7. Aggregator decides approve/revise.
+8. Compiler saves final report and research-result Mermaid diagrams.
 
 ## Evidence
 
@@ -176,4 +177,4 @@ Reviewer-facing files:
 - `reviewer_artifacts/sample_market_analysis_report.md`
 - `reviewer_artifacts/static_check_summary.md`
 
-Generated runtime output is written to `output/` and ignored by git.
+Generated runtime output is written to `output/` and ignored by git. The committed generated acceptance report is historical evidence from the full E2E run; current sample/report contract is documented in `reviewer_artifacts/sample_market_analysis_report.md`.

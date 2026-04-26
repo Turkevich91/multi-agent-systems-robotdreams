@@ -571,7 +571,13 @@ def _default_diagrams(state: MarketState | None = None) -> list[MermaidDiagram]:
 
 
 def _remove_orchestrator_diagrams(markdown: str) -> str:
-    unwanted_titles = ["Architecture Integration Map", "Orchestrator Architecture", "Agent Orchestration Flow"]
+    unwanted_titles = [
+        "Architecture Integration Map",
+        "Orchestrator Architecture",
+        "Agent Orchestration Flow",
+        "Risk Decision Flow",
+        "Adoption Roadmap",
+    ]
     cleaned = markdown
     for title in unwanted_titles:
         cleaned = re.sub(

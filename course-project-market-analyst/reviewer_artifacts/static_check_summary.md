@@ -17,7 +17,8 @@
 | Optional `SearchMCP` smoke | Passed | `list_tools` повернув `web_search`, `read_url`, `knowledge_search`; resource `resource://market-knowledge-stats` доступний. |
 | `uv run python bootstrap_langfuse.py` | Passed | Course-project prompts створені/оновлені в Langfuse prompt management. |
 | Direct OpenAI model smoke | Passed | `gpt-5.4-mini` відповів через `https://api.openai.com/v1`; course-project chat backend більше не наслідує LM Studio `OPENAI_BASE_URL`. |
-| Backend E2E acceptance run | Passed | FastAPI + SearchMCP + Qdrant + HITL + Langfuse завершили run `115efb2ff808` зі статусом `completed`, trace id `bd023448dfe118eef534ff0e82bdd2b3` і 3 Mermaid diagrams. |
+| Backend E2E acceptance run | Passed | FastAPI + SearchMCP + Qdrant + HITL + Langfuse завершили run `115efb2ff808` зі статусом `completed`, trace id `bd023448dfe118eef534ff0e82bdd2b3`. |
+| Current diagram contract smoke | Passed | `graph.py` now emits 5 research-result diagrams: market entry, payback, validation timeline, saturation map and critic score pie chart. |
 
 ## Що Потребує Runtime Оточення
 
@@ -39,6 +40,10 @@ Backend -> Research Analyst -> Critic Role Selector -> Human Criteria Gate
 Фінальний результат:
 
 - saved Markdown report у `output/`;
-- `FinalReport.diagrams` з Mermaid blocks;
+- `FinalReport.diagrams` з Mermaid blocks for research outcomes, not orchestrator internals;
 - SSE history у SPA;
 - Langfuse trace id у backend response або CLI output.
+
+## Artifact Note
+
+`generated_acceptance_report.md` є historical generated output з повного E2E acceptance run. Після цього diagram contract було уточнено: нові runtime reports повинні показувати market-entry/payback/timeline/saturation diagrams, а source-level architecture лишається в `uml_diagrams/`.

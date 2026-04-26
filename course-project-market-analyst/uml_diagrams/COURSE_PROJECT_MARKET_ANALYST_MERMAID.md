@@ -10,6 +10,7 @@ flowchart LR
     User --> CLI["CLI Fallback"]
     UI --> API["FastAPI Backend"]
     API --> SSE["SSE Event Stream"]
+    API --> RunRecord["In-memory RunRecord: status, history, approved critic roles"]
     API --> Graph["LangGraph StateGraph"]
     CLI --> Graph
     Graph --> Analyst["Research Analyst"]
@@ -46,21 +47,18 @@ stateDiagram-v2
 flowchart TD
     Draft["DraftReport"] --> Selector["CriticRoleSelector"]
     Registry["Base Critic Registry"] --> Selector
+    Registry -. "optional if configured" .-> OptionalRoles["Security / Architecture / Change"]
     Selector --> Roles["Default Financial + Risk Roles"]
     Roles --> Human["Human Criteria Gate"]
     Human -. "human adds role" .-> Custom["Ad-hoc Critic"]
     Human -. "AI suggests role" .-> Suggested["AI-Suggested Critic"]
     Human --> Financial["Financial Critic"]
     Human --> Risk["Risk Manager"]
-    Human -. "if relevant" .-> Security["Security Critic"]
-    Human -. "if relevant" .-> Architecture["Technical Architecture Critic"]
-    Human -. "if relevant" .-> Change["Change Management Critic"]
+    Human -. "manual or configured" .-> OptionalRoles
     Financial --> Aggregate["Critic Aggregator"]
     Risk --> Aggregate
     Suggested --> Aggregate
-    Security --> Aggregate
-    Architecture --> Aggregate
-    Change --> Aggregate
+    OptionalRoles --> Aggregate
     Custom --> Aggregate
     Aggregate --> Verdict{"APPROVED?"}
     Verdict -- "no" --> Revision["Analyst Revision"]
@@ -93,6 +91,7 @@ sequenceDiagram
     participant User
     participant SPA as React SPA
     participant API as FastAPI
+    participant Store as RunRecord
     participant Graph as LangGraph
     participant Human as Human Criteria Gate
 
@@ -104,23 +103,42 @@ sequenceDiagram
     API-->>SPA: SSE agent_update
     Graph-->>Human: interrupt(selected roles)
     API-->>SPA: SSE hitl_required
-    User->>SPA: approve or edit criteria
+    User->>SPA: approve, edit, add custom, or AI-suggest critic
     SPA->>API: POST /api/runs/{run_id}/critic-criteria
+    API->>Store: persist approved_roles + additional_criteria
     API->>Graph: Command(resume=criteria)
     Graph-->>API: critics, aggregator, compiler events
     API-->>SPA: SSE completed + run_completed
     SPA->>API: GET /api/runs/{run_id}
-    API-->>SPA: final report + Mermaid diagrams
+    API-->>SPA: final report + research-result Mermaid diagrams + critic_roles
+    SPA->>SPA: keep approved critics visible for session-level re-critique
 ```
 
-## 6. Reviewer Evidence Flow
+## 6. Runtime Report Diagram Boundary
+
+```mermaid
+flowchart TD
+    Compiler["Report Compiler"] --> Report["FinalReport"]
+    Report --> ResearchDiagrams["Runtime report diagrams"]
+    RuntimeUI["SPA report panel"] --> ResearchDiagrams
+    ResearchDiagrams --> Entry["Market Entry Decision Flow"]
+    ResearchDiagrams --> Payback["Payback Decision Gate"]
+    ResearchDiagrams --> Timeline["Market Validation Timeline"]
+    ResearchDiagrams --> Saturation["Market Saturation Map"]
+    ResearchDiagrams --> Scores["Expert Critic Score Share"]
+    SourceDocs["Source/docs only"] --> Architecture["Orchestrator Architecture Diagrams"]
+    Architecture -. "documented separately" .-> SourceDocs
+```
+
+## 7. Reviewer Evidence Flow
 
 ```mermaid
 flowchart TD
     Code["Code: graph.py, api.py, frontend"] --> Static["Static checks"]
     Static --> Build["Python compileall + npm build"]
     Build --> Docs["README + SUBMISSION_NOTES"]
-    Docs --> Diagrams["Mermaid architecture notes"]
+    Docs --> Diagrams["Source-level Mermaid notes"]
+    Docs --> Sample["Current sample report diagram contract"]
     Runtime["Runtime demo"] --> Trace["Langfuse trace id"]
     Runtime --> Report["Generated output/*.md"]
     Runtime --> Screens["SPA / Langfuse screenshots"]
@@ -128,4 +146,5 @@ flowchart TD
     Report --> Reviewer
     Screens --> Reviewer
     Diagrams --> Reviewer
+    Sample --> Reviewer
 ```

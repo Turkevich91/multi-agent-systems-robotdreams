@@ -14,17 +14,18 @@
 4. Відкрити `http://127.0.0.1:5173`.
 5. Запустити acceptance query про ринок agentic AI developer tools.
 6. Показати SSE event stream: Analyst, CriticRoleSelector, Human Criteria Gate.
-7. На HITL кроці змінити критерії критиків або додати власного критика, наприклад для актуальності.
+7. На HITL кроці змінити критерії, додати власного критика або згенерувати AI-suggested critic для конкретного research prompt.
 8. Дочекатися Expert Critic Panel, Aggregator і Compiler.
-9. Показати фінальний report, Mermaid diagrams і saved output path.
-10. Відкрити Langfuse trace, щоб показати trace tree, model/tool calls, metadata і session tags.
+9. Показати, що після готового report панель критиків зберігає саме ті ролі, через які проходила критика.
+10. Показати фінальний report, Mermaid diagrams і saved output path.
+11. Відкрити Langfuse trace, щоб показати trace tree, model/tool calls, metadata і session tags.
 
 ## Що Важливо Пояснити
 
 - MCP доданий як optional read-only boundary. Це справжній `SearchMCP`, але у режимі `mcp_auto` система не падає, якщо MCP server не запущений.
 - ACP навмисно не додано у фінальний проєкт, бо він уже був реалізований у HW9, а тут збільшив би runtime ризик без суттєвої користі для теми.
 - SPA не містить model keys. Frontend працює тільки через FastAPI.
-- Human-in-the-loop стоїть не в кінці, а перед критикою, щоб людина могла керувати тим, з яких професійних перспектив система буде оцінювати рішення.
+- Human-in-the-loop стоїть не в кінці, а перед критикою, щоб людина могла керувати тим, з яких професійних перспектив система буде оцінювати рішення. Approved critic roles зберігаються на час run/session, щоб було видно, які критики сформували final report.
 - Mermaid не просто документація. Діаграми в output показують результати research: market entry flow, payback gate, validation timeline, saturation map і розподіл оцінок expert critics; архітектура оркестратора описана окремо в source/docs.
 
 ## Acceptance Prompt
