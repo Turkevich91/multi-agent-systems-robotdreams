@@ -1,0 +1,15 @@
+fastapi>=0.115.0
+uvicorn==0.35.0
+langgraph>=1.1.6
+langchain>=1.2.0
+langchain-openai>=1.1.12
+langfuse>=4.5.0,<5.0.0
+fastmcp==3.2.0
+qdrant-client>=1.17.1
+rank-bm25>=0.2.2
+sentence-transformers>=5.4.1
+ddgs>=7.0
+trafilatura>=2.0.0
+pydantic>=2.12.0
+pydantic-settings>=2.12.0
+pypdf>=6.10.1

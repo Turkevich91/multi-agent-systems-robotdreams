@@ -39,4 +39,8 @@ Desktop.ini
 chroma_db/
 homework-lesson-*/index/
 homework-lesson-*/output/
+course-project-market-analyst/index/
+course-project-market-analyst/output/
+course-project-market-analyst/frontend/node_modules/
+course-project-market-analyst/frontend/dist/
 resources
